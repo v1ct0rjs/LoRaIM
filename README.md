@@ -1,12 +1,16 @@
-# Proyecto: Gateway LoRaWAN con Raspberry Pi 3 y The Things Stack
+# Proyecto: Gateway LoRaWAN
 
 ## Descripción general del proyecto
 
 Este proyecto consiste en crear una **pasarela LoRaWAN** En otras palabras, la Raspberry Pi actuará como un **gateway** que recibe datos inalámbricos de largo alcance desde sensores (nodos LoRaWAN) y los envía a una aplicación de red. Los nodos serán pequeños dispositivos con ESP32 que transmitirán información mediante el protocolo LoRaWAN, y la pasarela (con un módulo concentrador LoRa) reenviará esos datos a un servidor de red LoRaWAN (en este caso, **The Things Stack**, ejecutándose en la Raspberry Pi mediante Docker). Finalmente, la información podrá consultarse en una aplicación a través de Internet o la red local (por ejemplo, mediante MQTT o HTTP).
 
-En términos simples, **LoRaWAN** es un protocolo de comunicación inalámbrica de largo alcance y baja potencia. Permite que sensores envíen pequeños paquetes de datos a varios kilómetros de distancia. Las **pasarelas LoRaWAN** funcionan como puentes: reciben los mensajes de los sensores cercanos y los retransmiten por Internet a un servidor. El servidor de red (Network Server) procesa esos mensajes y los pone a disposición de las aplicaciones. La arquitectura típica incluye: dispositivos finales (nodos), pasarelas, servidor de red, y servidor de aplicaciones ([LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/#:~:text=End devices communicate with nearby,is known as message deduplication)) ([LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/#:~:text=Each gateway is registered ,4 GHz radio links)). En la figura a continuación se ilustra este concepto:
+En términos simples, **LoRaWAN** es un protocolo de comunicación inalámbrica de largo alcance y baja potencia. Permite que sensores envíen pequeños paquetes de datos a varios kilómetros de distancia. Las **pasarelas LoRaWAN** funcionan como puentes: reciben los mensajes de los sensores cercanos y los retransmiten por Internet a un servidor. El servidor de red (Network Server) procesa esos mensajes y los pone a disposición de las aplicaciones. La arquitectura típica incluye: dispositivos finales (nodos), pasarelas, servidor de red, y servidor de aplicaciones ([LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/#:~:text=End devices communicate with nearby,is known as message deduplication)).
 
-([LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/)) *Figura: Arquitectura básica de un sistema LoRaWAN (nodos → gateway → servidor de red → servidor de aplicaciones).*
+En la figura a continuación se ilustra este concepto:
+
+
+
+*Figura: Arquitectura básica de un sistema LoRaWAN (nodos → gateway → servidor de red → servidor de aplicaciones).*
 
 En nuestro proyecto, todo estará en una escala pequeña y local: los nodos (ESP32 con sensores) enviarán datos LoRa que recibirá la pasarela (Raspberry Pi 3 + módulo LoRa). La Raspberry Pi, además de llevar el módulo de radio LoRa, ejecutará en Docker **The Things Stack (TTS)**, que es una implementación del servidor de red LoRaWAN (es la misma tecnología utilizada por The Things Network). TTS gestionará los dispositivos, claves de seguridad y el reenvío de los datos hacia la aplicación final. La aplicación final también podrá ejecutarse en la misma Raspberry Pi (por ejemplo, otro contenedor Docker que procese los datos vía MQTT).
 
