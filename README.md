@@ -4,11 +4,11 @@
 
 Este proyecto consiste en crear una **pasarela LoRaWAN** En otras palabras, la Raspberry Pi actuará como un **gateway** que recibe datos inalámbricos de largo alcance desde sensores (nodos LoRaWAN) y los envía a una aplicación de red. Los nodos serán pequeños dispositivos con ESP32 que transmitirán información mediante el protocolo LoRaWAN, y la pasarela (con un módulo concentrador LoRa) reenviará esos datos a un servidor de red LoRaWAN (en este caso, **The Things Stack**, ejecutándose en la Raspberry Pi mediante Docker). Finalmente, la información podrá consultarse en una aplicación a través de Internet o la red local (por ejemplo, mediante MQTT o HTTP).
 
-En términos simples, **LoRaWAN** es un protocolo de comunicación inalámbrica de largo alcance y baja potencia. Permite que sensores envíen pequeños paquetes de datos a varios kilómetros de distancia. Las **pasarelas LoRaWAN** funcionan como puentes: reciben los mensajes de los sensores cercanos y los retransmiten por Internet a un servidor. El servidor de red (Network Server) procesa esos mensajes y los pone a disposición de las aplicaciones. La arquitectura típica incluye: dispositivos finales (nodos), pasarelas, servidor de red, y servidor de aplicaciones ([LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/#:~:text=End devices communicate with nearby,is known as message deduplication)).
+En términos simples, **LoRaWAN** es un protocolo de comunicación inalámbrica de largo alcance y baja potencia. Permite que sensores envíen pequeños paquetes de datos a varios kilómetros de distancia. Las **pasarelas LoRaWAN** funcionan como puentes: reciben los mensajes de los sensores cercanos y los retransmiten por Internet a un servidor. El servidor de red (Network Server) procesa esos mensajes y los pone a disposición de las aplicaciones. La arquitectura típica incluye: dispositivos finales (nodos), pasarelas, servidor de red, y servidor de aplicaciones [LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/).
 
 En la figura a continuación se ilustra este concepto:
 
-
+![Esquema](https://raw.githubusercontent.com/v1ct0rjs/lorawan_project/refs/heads/main/photo_2025-04-03_13-02-17.jpg)
 
 *Figura: Arquitectura básica de un sistema LoRaWAN (nodos → gateway → servidor de red → servidor de aplicaciones).*
 
@@ -39,7 +39,7 @@ Para implementar el gateway y los nodos, necesitaremos algunos componentes elect
 
 Comenzaremos preparando la Raspberry Pi 3 con su sistema operativo. Usaremos **Raspberry Pi OS Lite** (una versión ligera de Linux basada en Debian), ya que no necesitamos entorno gráfico y así ahorramos recursos. Sigue estos pasos:
 
-1. **Descargar Raspberry Pi OS:** Visita la página oficial de Raspberry Pi y descarga la herramienta **Raspberry Pi Imager* ([Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=Install the Raspberry Pi Operating,org%2Fsoftware))】. Con ella puedes instalar fácilmente el sistema en la tarjeta SD.
+1. **Descargar Raspberry Pi OS:** Visita la página oficial de Raspberry Pi y descarga la herramienta **Raspberry Pi Imager* [Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=Install). Con ella puedes instalar fácilmente el sistema en la tarjeta SD.
 
 2. **Flashear la tarjeta microSD:** Inserta la microSD en tu PC (con un adaptador si es necesario). Abre Raspberry Pi Imager:
 
@@ -52,8 +52,8 @@ Comenzaremos preparando la Raspberry Pi 3 con su sistema operativo. Usaremos **R
    - Inicia sesión con el usuario por defecto: **usuario:** `pi`, **contraseña:** `raspberry`. Te recomendamos cambiar esta contraseña más adelante (puedes hacerlo con el comando `passwd`).
    - Opcional: Ejecuta `sudo raspi-config` para configurar algunas opciones básicas:
      - En *System Options > Wireless LAN*, configura el **Wi-Fi** (país, SSID y contraseña) si usarás WiFi.
-     - En *Interface Options*, activa **SSH** para permitir acceso remoto segur ([Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=Configure WiFi and enable SSH%2C,config)) ([Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=To enable SSH%3A Go to,192.168.178.43))】. Esto facilitará mucho la instalación, pues podrás copiar y pegar comandos desde tu PC.
-     - En *Interface Options*, activa **SPI** e **I2C** (estas interfaces son necesarias para comunicar la Pi con el módulo LoRa RAK2245 vía GPIO ([GitHub - RAKWireless/rak_common_for_gateway](https://github.com/RAKWireless/rak_common_for_gateway#:~:text=step2 %3A Use "sudo raspi,and enable serial port hardware))】. Al activar SPI/I2C, probablemente `raspi-config` te preguntará si quieres habilitar la interfaz – elige "Sí".
+     - En *Interface Options*, activa **SSH** para permitir acceso remoto segur [Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=Configure) [Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=To). Esto facilitará mucho la instalación, pues podrás copiar y pegar comandos desde tu PC.
+     - En *Interface Options*, activa **SPI** e **I2C** (estas interfaces son necesarias para comunicar la Pi con el módulo LoRa RAK2245 vía GPIO [GitHub - RAKWireless/rak_common_for_gateway](https://github.com/RAKWireless/rak_common_for_gateway#:~:text=step2). Al activar SPI/I2C, probablemente `raspi-config` te preguntará si quieres habilitar la interfaz – elige "Sí".
      - Desactiva la consola serial por el puerto UART si se te pregunta (esto libera el puerto serial para otros usos, a veces relevante para ciertos módulos).
      - Finalmente selecciona *Finish* y permite que la Raspberry Pi se reinicie si así lo indica.
    - Si configuraste WiFi y SSH, a partir de ahora puedes desconectar monitor/teclado y conectarte a la Pi vía SSH desde tu PC (`ssh pi@<IP_de_tu_RPi>`). Para encontrar la IP, puedes usar `ifconfig` en la Pi o mirar en tu router.
