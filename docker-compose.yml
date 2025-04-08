@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: fastapi_app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  tts:
+    image: thethingsnetwork/lorawan-stack:latest
+    container_name: the_things_stack
+    ports:
+      - "1885:1885"  # Puerto de la consola web
+      - "1700:1700/udp"  # Puerto para tráfico LoRaWAN
+    volumes:
+      - ./tts/config:/config
+    environment:
+      - TTN_LW_CONFIG=/config/ttn-lw-stack-docker.yml
+    restart: unless-stopped
+
