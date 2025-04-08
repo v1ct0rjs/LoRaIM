@@ -1,569 +1,268 @@
-# Proyecto: Gateway LoRaWAN
-
-## Descripción general del proyecto
-
-Este proyecto consiste en crear una **pasarela LoRaWAN** En otras palabras, la Raspberry Pi actuará como un **gateway** que recibe datos inalámbricos de largo alcance desde sensores (nodos LoRaWAN) y los envía a una aplicación de red. Los nodos serán pequeños dispositivos con ESP32 que transmitirán información mediante el protocolo LoRaWAN, y la pasarela (con un módulo concentrador LoRa) reenviará esos datos a un servidor de red LoRaWAN (en este caso, **The Things Stack**, ejecutándose en la Raspberry Pi mediante Docker). Finalmente, la información podrá consultarse en una aplicación a través de Internet o la red local (por ejemplo, mediante MQTT o HTTP).
-
-En términos simples, **LoRaWAN** es un protocolo de comunicación inalámbrica de largo alcance y baja potencia. Permite que sensores envíen pequeños paquetes de datos a varios kilómetros de distancia. Las **pasarelas LoRaWAN** funcionan como puentes: reciben los mensajes de los sensores cercanos y los retransmiten por Internet a un servidor. El servidor de red (Network Server) procesa esos mensajes y los pone a disposición de las aplicaciones. La arquitectura típica incluye: dispositivos finales (nodos), pasarelas, servidor de red, y servidor de aplicaciones [LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/).
-
-En la figura a continuación se ilustra este concepto:
+# Proyecto: LoRaWAN
 
 ![Esquema](https://raw.githubusercontent.com/v1ct0rjs/lorawan_project/refs/heads/main/photo_2025-04-03_13-02-17.jpg)
 
 *Figura: Arquitectura básica de un sistema LoRaWAN (nodos → gateway → servidor de red → servidor de aplicaciones).*
 
-En nuestro proyecto, todo estará en una escala pequeña y local: los nodos (ESP32 con sensores) enviarán datos LoRa que recibirá la pasarela (Raspberry Pi 3 + módulo LoRa). La Raspberry Pi, además de llevar el módulo de radio LoRa, ejecutará en Docker **The Things Stack (TTS)**, que es una implementación del servidor de red LoRaWAN (es la misma tecnología utilizada por The Things Network). TTS gestionará los dispositivos, claves de seguridad y el reenvío de los datos hacia la aplicación final. La aplicación final también podrá ejecutarse en la misma Raspberry Pi (por ejemplo, otro contenedor Docker que procese los datos vía MQTT).
+## Arquitectura general y flujo de datos
 
-En resumen, con este proyecto podrás montar una red LoRaWAN **completa y privada** en tu casa o laboratorio, visualizando los datos enviados por tus sensores a través de una aplicación. No se requiere experiencia técnica avanzada: en esta guía encontrarás paso a paso desde la instalación del sistema hasta ejemplos de código, usando un lenguaje sencillo.
+([MQTT Manager, Lora and Lora 'Poor Man' Gateway - Super Cheap : 11 Steps - Instructables](https://www.instructables.com/MQTT-Manager-Lora-and-Lora-Poor-Man-Gateway-Cheap-/)) *Figura 1: Ejemplo de arquitectura híbrida WiFi–LoRa. Los dispositivos de usuario se conectan vía WiFi a un nodo ESP32, el cual retransmite las peticiones mediante LoRa a un gateway central. Este gateway (en nuestro caso, la Raspberry Pi) recibe los mensajes LoRa, los procesa (consulta a la API FastAPI) y devuelve la respuesta vía LoRa al nodo correspondiente, que luego la entrega al dispositivo por WiFi. Inspirado en un proyecto de puente MQTT–LoRa ([MQTT Manager, Lora and Lora 'Poor Man' Gateway - Super Cheap : 11 Steps - Instructables](https://www.instructables.com/MQTT-Manager-Lora-and-Lora-Poor-Man-Gateway-Cheap-/#:~:text=Apartment)).*
 
-## Hardware necesario 🔧
+En esta arquitectura, una **Raspberry Pi** equipada con un **HAT LoRa** actúa como servidor central (gateway). La API **FastAPI** corre en la Raspberry Pi (dentro de un contenedor Docker) escuchando en el puerto 8000. Los **nodos ESP32** están distribuidos como nodos remotos: cada ESP32 funciona en modo *punto de acceso WiFi* (AP) para dar conectividad local a dispositivos de usuario (móviles, portátiles, etc.). Cuando un usuario realiza una solicitud a la API (por ejemplo, haciendo una petición HTTP a la IP del nodo ESP32), dicha petición es capturada por el ESP32 y **encapsulada en un mensaje LoRa**. El mensaje viaja inalámbricamente hasta la Raspberry Pi mediante el enlace LoRa de larga distancia.
 
-Para implementar el gateway y los nodos, necesitaremos algunos componentes electrónicos. A continuación se lista el hardware esencial, con sugerencias y enlaces de referencia para su adquisición:
+En la Raspberry Pi, un proceso se encarga de recibir el mensaje LoRa. La infraestructura utiliza **MQTT** como protocolo de mensajería entre los ESP32 y el servidor: el nodo ESP32 convierte la petición en un mensaje que publica (vía LoRa) en un “tema” MQTT, y la Raspberry Pi actúa como *broker* o despachador de estos mensajes. Al recibir una petición, la Raspberry Pi la decodifica y la **reenvía internamente a la API FastAPI** (por ejemplo, llamando al endpoint correspondiente de FastAPI o invocando la lógica de negocio directamente). La respuesta de la API luego se envía de vuelta al nodo solicitante siguiendo el camino inverso: la Raspberry Pi publica un mensaje MQTT de respuesta que el nodo ESP32 destinatario recibe a través de LoRa, y el ESP32 entrega la respuesta al cliente original mediante HTTP sobre WiFi. Este flujo asegura una comunicación **bidireccional**: los nodos pueden tanto enviar solicitudes como recibir las respuestas de la API central, pese a no tener conectividad a Internet, gracias al enlace LoRa de largo alcance.
 
-- **Raspberry Pi 3** (modelo B o B+), con tarjeta microSD (8 GB o más) y conectividad a Internet (por Ethernet o WiFi). Es el computador principal que actuará como gateway y servidor.
-- **Módulo concentrador LoRaWAN de 8 canales** para Raspberry Pi. Por ejemplo, la placa *RAK2245 Pi HAT* de RAKwireless, que se conecta directamente al puerto GPIO de la Raspberry P ([Meet the Device That LoRa® Developers Can't Resist Having: RAK2245 - IoT Made Easy](https://www.rakwireless.com/en-us/products/lpwan-gateways-and-concentrators/rak2245-pihat#:~:text=LPWAN Gateway Concentrator Module The,as the Raspberry Pi 3B))】. Este módulo incluye el chip concentrador (Semtech SX1301/SX1308) y permite a la Pi recibir/transmitir en la banda LoRaWAN. Viene normalmente con antena LoRa y GPS. **Alternativas:** otros concentradores similares (RAK2246, RAK2287, iC880a, etc.) también son válidos, siempre que sean compatibles con Raspberry Pi.
-  - **Enlace sugerido:** [RAK2245 Pi HAT – Concentrador LoRaWAN 8 canales](https://store.rakwireless.com/products/rak2245-pi-hat) (ver descripción en la tienda de RAK).
-- **Antena LoRa** adecuada a la frecuencia de tu región. Por ejemplo, en Europa se usa 868 MHz y en América 915 MHz. Asegúrate de adquirir una antena que coincida con la frecuencia del módulo concentrador. Muchos kits de pasarela (como el RAK2245) ya incluyen una antena LoRa apropiada.
-- **Fuente de alimentación** de 5V para la Raspberry Pi (al menos 2 A de corriente). Una fuente oficial o de buena calidad garantizará estabilidad, sobre todo al alimentar también el módulo concentrador.
-- **Tarjeta microSD** de al menos 8 GB (se recomienda 16 GB) para instalar el sistema operativo de la Raspberry Pi.
-- **Placas de desarrollo ESP32 con radio LoRa integrada** para usarlas como nodos. Por ejemplo, las placas **Heltec WiFi LoRa 32** o **LILYGO TTGO LoRa32**, que incluyen un microcontrolador ESP32, un transceptor LoRa (SX1276/SX1278 o similares) y en algunos casos una pequeña pantalla OLED. Estas placas son ideales porque soportan MicroPython y ya traen la radio LoRa incorporada.
-  - **Enlace sugerido:** [Heltec LoRa 32 V2 (ESP32 + LoRa 868 MHz)](https://heltec.org/project/wifi-lora-32/) o buscar en Amazon por "ESP32 LoRa 868 Heltec/TTGO".
-  - **Alternativa:** un ESP32 normal más un módulo LoRa externo (por ejemplo Ra-02, RFM95) conectados por SPI. Sin embargo, las placas integradas hacen más sencilla la implementación.
-- **Antenas LoRa para los nodos** ESP32: suelen venir incluidas con las placas Heltec/TTGO (pueden ser pequeñas antenas helicoidales o de hilo). Conectarlas correctamente es importante para buen alcance.
-- **Cable microUSB** para programar los ESP32 desde el PC.
-- (Opcional) **Sensor(es)** para conectar a los ESP32 (p.ej. sensor de temperatura, humedad, etc.), según los datos que quieras enviar. También opcionalmente **cajas o carcasas** si deseas empotrar la pasarela o los nodos.
+En resumen, el flujo de datos principal es:
 
-**Nota:** Verifica que la banda de frecuencia LoRaWAN de todos los componentes coincida (pasarela y nodos). En España y la mayor parte de Europa se utiliza la banda EU868 (868 MHz), mientras que en Norteamérica es US915 (915 MHz). Muchos de estos módulos vienen en versiones específicas para cada banda.
+1. **Dispositivo → ESP32 (WiFi):** Un cliente (ej. un teléfono conectado al AP WiFi del ESP32) realiza una solicitud HTTP a la dirección IP del nodo (p.ej. una consulta REST).
+2. **ESP32 → Raspberry Pi (LoRa/MQTT):** El ESP32 toma esa solicitud y la publica como mensaje MQTT sobre la red LoRa hacia la Raspberry Pi (la cual hace de broker). En la práctica, esto implica serializar la petición (p. ej. en JSON ligero) y enviarla por LoRa.
+3. **Procesamiento en Raspberry Pi:** El servidor central recibe el mensaje LoRa, lo pasa al broker MQTT local y éste entrega la solicitud a la instancia de FastAPI (por suscripción a un tema de “peticiones”). La API FastAPI procesa la solicitud (consulta bases de datos, lógica de negocio, etc.) y genera una respuesta.
+4. **Raspberry Pi → ESP32 (LoRa/MQTT):** La respuesta se publica como mensaje MQTT en un tema al que estaba suscrito el nodo originador. El HAT LoRa transmite ese mensaje de vuelta vía radio LoRa.
+5. **ESP32 → Dispositivo (WiFi):** El nodo ESP32 recibe el mensaje LoRa con la respuesta, lo decodifica y envía la respuesta al cliente a través de la conexión WiFi local (por ejemplo, formando una respuesta HTTP al socket del cliente). El dispositivo obtiene así la respuesta de la API central.
 
-## Instalación del sistema operativo en la Raspberry Pi
+Esta arquitectura en estrella tiene a la Raspberry Pi como **nodo concentrador** y emplea LoRa para la **comunicación de largo alcance** con los nodos, superando las limitaciones de cobertura del WiFi. Cada nodo ESP32 sirve de *gateway* local para los usuarios cercanos (mediante WiFi), permitiendo consultas a la API sin requerir infraestructura de red celular ni internet en campo. El uso de **MQTT** proporciona un esquema flexible de publicación/suscripción para las comunicaciones entre nodos y servidor, facilitando la gestión de mensajes de forma desacoplada y la posibilidad de manejar múltiples nodos y temas.
 
-Comenzaremos preparando la Raspberry Pi 3 con su sistema operativo. Usaremos **Raspberry Pi OS Lite** (una versión ligera de Linux basada en Debian), ya que no necesitamos entorno gráfico y así ahorramos recursos. Sigue estos pasos:
+## Componentes de hardware y software necesarios
 
-1. **Descargar Raspberry Pi OS:** Visita la página oficial de Raspberry Pi y descarga la herramienta **Raspberry Pi Imager* [Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=Install). Con ella puedes instalar fácilmente el sistema en la tarjeta SD.
+A continuación se listan los componentes principales necesarios, tanto de hardware como de software, para implementar la solución:
 
-2. **Flashear la tarjeta microSD:** Inserta la microSD en tu PC (con un adaptador si es necesario). Abre Raspberry Pi Imager:
+### Hardware
 
-   - Selecciona *Raspberry Pi OS Lite (32 bits)* como sistema operativo (es suficiente para nuestro propósito).
-   - Selecciona la tarjeta SD de destino.
-   - Haz clic en *Write* para grabar el OS en la tarjeta. Espera a que finalice.
+| Componente                                 | Descripción                                                  |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| **Raspberry Pi 4** (o 3)                   | Microcomputadora central que actuará como servidor. Debe contar con SPI habilitado para conectar el módulo LoRa. Se recomienda un modelo con buen rendimiento (Pi 3/4) para manejar Docker y la API. |
+| **HAT LoRa MeshAdv-Pi v1.1** de Meshtastic | Módulo LoRa en forma de HAT para la Raspberry Pi. Usa un transceptor LoRa de 1W (p.ej. basado en Semtech SX1262/SX127x) conectado vía SPI ([Meshtastic on Linux-Native Devices |
+| **Módulos ESP32** (Nodos)                  | Microcontroladores con WiFi integrados que actuarán como nodos remotos. Cada ESP32 se conecta a un módulo de radio LoRa (p.ej. un módulo con chip SX1276/SX1278) para comunicarse con la Pi. Alternativamente, se pueden usar placas ESP32 LoRa integradas (ej. Heltec WiFi LoRa 32, TTGO LoRa) que ya incorporan el radio LoRa. |
+| **Módulos LoRa para ESP32**                | Si la placa ESP32 no lo trae integrado, se necesitan módulos LoRa externos (p. ej. RFM95/RFM98 o E32-433/868). Estos se conectan al ESP32 (vía SPI en caso de módulos SX127x, o vía UART en módulos LoRa seriales como E32). Se debe escoger la frecuencia adecuada (433 MHz, 868 MHz, 915 MHz) según la normativa regional ([MQTT Manager, Lora and Lora 'Poor Man' Gateway - Super Cheap : 11 Steps - Instructables](https://www.instructables.com/MQTT-Manager-Lora-and-Lora-Poor-Man-Gateway-Cheap-/#:~:text=Here we have a simple,see Frequencies by country)). |
+| **Antenas LoRa**                           | Antenas sintonizadas a la frecuencia de operación de LoRa en cada nodo (tanto en la Pi como en los ESP32). Una buena antena es esencial para lograr el alcance máximo (varios km en condiciones ideales). |
+| **Fuente de alimentación**                 | Fuentes de poder estables para la Raspberry Pi y para cada ESP32. La Pi requiere una fuente de 5V 3A (usualmente USB-C). Los ESP32 pueden alimentarse con 5V (regulado a 3.3V a través del módulo o un regulador). Si los nodos estarán aislados, podría considerarse batería + panel solar (como en algunos proyectos off-grid). |
 
-3. **Configuración inicial de la Raspberry Pi:** Una vez grabada la tarjeta, insértala en la Raspberry Pi 3. Conéctala a un monitor y teclado, o prepárala para acceso SSH. En el primer arranque, el sistema puede reiniciarse una vez automáticamente. Finalmente aparecerá el prompt de login.
+### Software
 
-   - Inicia sesión con el usuario por defecto: **usuario:** `pi`, **contraseña:** `raspberry`. Te recomendamos cambiar esta contraseña más adelante (puedes hacerlo con el comando `passwd`).
-   - Opcional: Ejecuta `sudo raspi-config` para configurar algunas opciones básicas:
-     - En *System Options > Wireless LAN*, configura el **Wi-Fi** (país, SSID y contraseña) si usarás WiFi.
-     - En *Interface Options*, activa **SSH** para permitir acceso remoto segur [Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=Configure) [Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=To). Esto facilitará mucho la instalación, pues podrás copiar y pegar comandos desde tu PC.
-     - En *Interface Options*, activa **SPI** e **I2C** (estas interfaces son necesarias para comunicar la Pi con el módulo LoRa RAK2245 vía GPIO [GitHub - RAKWireless/rak_common_for_gateway](https://github.com/RAKWireless/rak_common_for_gateway#:~:text=step2). Al activar SPI/I2C, probablemente `raspi-config` te preguntará si quieres habilitar la interfaz – elige "Sí".
-     - Desactiva la consola serial por el puerto UART si se te pregunta (esto libera el puerto serial para otros usos, a veces relevante para ciertos módulos).
-     - Finalmente selecciona *Finish* y permite que la Raspberry Pi se reinicie si así lo indica.
-   - Si configuraste WiFi y SSH, a partir de ahora puedes desconectar monitor/teclado y conectarte a la Pi vía SSH desde tu PC (`ssh pi@<IP_de_tu_RPi>`). Para encontrar la IP, puedes usar `ifconfig` en la Pi o mirar en tu router.
+| Componente                                 | Descripción                                                  |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| **Sistema Operativo (OS)** en Raspberry Pi | Una distro Linux ligera (Raspberry Pi OS o Ubuntu Server). Se debe habilitar SPI (por ejemplo, usando `raspi-config`) para la comunicación con el HAT LoRa. |
+| **Docker** y **Docker Compose**            | Plataforma de contenedores para desplegar la aplicación FastAPI y otros servicios. Docker facilita la portabilidad y aislamiento de la API. (La Raspberry Pi soporta Docker; las imágenes deben ser arquitectura ARM). |
+| **Aplicación FastAPI**                     | Implementación de la API (código Python) que se alojará en un contenedor Docker. Utiliza Uvicorn/Gunicorn como servidor ASGI. Escucha en el puerto 8000 dentro de la Pi. |
+| **Broker MQTT (e.g. Mosquitto)**           | Servicio MQTT que puede correr en la Raspberry Pi (nativo o en contenedor). Maneja los tópicos de mensajes entre Pi y nodos. Alternativamente, se puede usar la funcionalidad MQTT del servidor LoRaWAN (p. ej. ChirpStack) como broker de aplicación. |
+| **Stack LoRaWAN (opcional)**               | Para un enfoque LoRaWAN estándar: un servidor de red LoRaWAN local como **ChirpStack** (open-source) o **The Things Stack** desplegado en la Pi ([Storing Data locally in Raspberry-Pi with Lorawan Gateway - WisGate Connect RAK7391 - RAKwireless Forum](https://forum.rakwireless.com/t/storing-data-locally-in-raspberry-pi-with-lorawan-gateway/9729#:~:text=The simplest one ,MQTT instead of TTN’s MQTT)). Esto incluye componentes de gateway, network server, y aplicación (que suele integrar MQTT). *Nota:* Esto es opcional; los nodos también pueden comunicarse con un protocolo LoRa personalizado sin el overhead LoRaWAN. |
+| **Firmware MicroPython** en ESP32          | El firmware MicroPython instalado en cada ESP32, que nos permite programarlos en Python. Versiones recientes soportan WiFi y podemos agregar drivers para LoRa. Se puede usar la última versión estable de MicroPython para ESP32. |
+| **Librerías MicroPython**                  | - **network** (incluida) para configurar WiFi AP.  - **socket** (incluida) para implementar un servidor HTTP simple en el nodo.  - **Driver LoRa SX127x** (externa): se debe incluir un módulo Python para manejar el transceptor LoRa (por ejemplo, el driver `sx127x.py` de **uPyLoRa** ([[IoT] LoRa with MicroPython on the ESP8266 and ESP32 |
+| **Herramientas de desarrollo**             | IDE o entorno para cargar scripts en los ESP32 (como Thonny, uPyCraft) ([MicroPython: ESP32/ESP8266 Access Point (AP) |
 
-4. **Actualizar el sistema:** Es buena práctica asegurarse de tener los últimos paquetes. Ejecuta en la Raspberry Pi:
+## Configuración de Docker en la Raspberry Pi (despliegue de FastAPI)
 
-   ```bash
-   sudo apt-get update && sudo apt-get upgrade -y
-   ```
+En la Raspberry Pi, instalamos Docker para contenerizar la aplicación FastAPI. Esto permite aislar la API y sus dependencias, y facilita la configuración del servicio en el puerto 8000. Dado que la Pi usa arquitectura ARM, debemos usar imágenes compatibles. Una buena práctica es construir la imagen de FastAPI basándose en la imagen oficial de Python (que es multi-arch) ([FastAPI in Containers - Docker - FastAPI](https://fastapi.tiangolo.com/deployment/docker/#:~:text=This is what you would,in most cases%2C for example)). Por ejemplo, se puede usar un `Dockerfile` como:
 
-   Esto actualizará la lista de paquetes y aplicará cualquier actualización disponible. Puede tardar unos minutos.
-
-Llegados a este punto, tu Raspberry Pi 3 está operativa con Raspberry Pi OS. Mantén la Pi encendida y conectada a Internet para proceder con la instalación de Docker y del software de la pasarela.
-
-## Instalación de Docker y Docker Compose
-
-Usaremos **Docker** para desplegar fácilmente The Things Stack (servidor LoRaWAN) y potencialmente otras aplicaciones en contenedores. Docker permite “empaquetar” software en unidades independientes que se ejecutan en la Pi sin necesidad de instalaciones complicadas. También instalaremos **Docker Compose** para manejar múltiples contenedores con un solo archivo de configuración.
-
-Sigue estos pasos en la Raspberry Pi (puedes copiarlos y pegarlos vía SSH):
-
-1. **Instalar Docker Engine:** Ejecuta el script automático proporcionado por Docker, que detecta tu sistema (en este caso ARM/Raspberry Pi) e instala la última versión. En la terminal de la Pi, ingresa:
-
-   ```bash
-   curl -fsSL https://get.docker.com -o get-docker.sh && sudo sh get-docker.sh
-   ```
-
-   Esto descargará y ejecutará el script de instalación de Docker (puedes ver que es un comando muy similar al sugerido oficialment ([How To Install Docker and Docker-Compose On Raspberry Pi - DEV Community](https://dev.to/elalemanyo/how-to-install-docker-and-docker-compose-on-raspberry-pi-1mo#:~:text=Now is time to install,script for that%2C just run))】). Durante el proceso, se instalarán los paquetes `docker-ce` (Community Edition) y sus dependencias. Si todo va bien, al finalizar podrás ejecutar `docker --version` para verificar la instalación.
-
-2. **Configurar permisos de Docker:** Por defecto, Docker requiere privilegios de superusuario (root) para funcionar. Podemos permitir que el usuario “pi” use Docker sin sudo añadiéndolo al grupo “docker”:
-
-   ```bash
-   sudo usermod -aG docker pi
-   ```
-
-   Después, cierra la sesión y vuelve a entrar (o ejecuta `newgrp docker`) para aplicar los nuevos permiso ([How To Install Docker and Docker-Compose On Raspberry Pi - DEV Community](https://dev.to/elalemanyo/how-to-install-docker-and-docker-compose-on-raspberry-pi-1mo#:~:text=3. Add a Non,to the Docker Group)) ([How To Install Docker and Docker-Compose On Raspberry Pi - DEV Community](https://dev.to/elalemanyo/how-to-install-docker-and-docker-compose-on-raspberry-pi-1mo#:~:text=To add the permissions to,the current user run))】. Este paso es opcional pero conveniente, así no tendrás que escribir `sudo` antes de cada comando docker.
-
-3. **Instalar Docker Compose:** Docker Compose es una herramienta para definir y correr aplicaciones multi-contenedor. Para instalarla en Raspberry Pi:
-
-   - Primero asegúrate de tener Python 3 y pip instalados:
-
-     ```bash
-     sudo apt-get install -y python3 python3-pip
-     ```
-
-   - Luego instala Docker Compose usando pip:
-
-     ```bash
-     sudo pip3 install docker-compose
-     ```
-
-     Esto descargará la última versión compatible de Compose. Alternativamente, en Raspberry Pi OS Bullseye o posterior, podrías instalar con apt (`sudo apt-get install docker-compose`), pero la versión vía pip suele estar más actualizad ([How To Install Docker and Docker-Compose On Raspberry Pi - DEV Community](https://dev.to/elalemanyo/how-to-install-docker-and-docker-compose-on-raspberry-pi-1mo#:~:text=Using `pip`%3A Docker,can run the following commands)) ([How To Install Docker and Docker-Compose On Raspberry Pi - DEV Community](https://dev.to/elalemanyo/how-to-install-docker-and-docker-compose-on-raspberry-pi-1mo#:~:text=Once python3 and pip3 are,Compose using the following command))】.
-
-   - Comprueba la instalación con `docker-compose --version`. Deberías obtener un número de versión si todo fue correcto.
-
-4. **Verificación rápida:** Ejecuta `docker run hello-world`. Esto descargará una pequeña imagen de prueba y la ejecutará. Si ves un mensaje de "Hello from Docker!" significa que Docker está funcionando correctamente.
-
-Ya tenemos Docker instalado en la Raspberry Pi. Ahora podremos desplegar servicios en contenedores de forma sencilla.
-
-## Instalación de The Things Stack (servidor LoRaWAN) en Docker
-
-The Things Stack (TTS) es la plataforma que gestionará la red LoRaWAN local. Actuará como **Network Server**, encargado de recibir los datos de la pasarela, aplicar las claves de seguridad LoRaWAN, y ofrecer los datos a las aplicaciones. Vamos a instalar la edición open source de TTS en la Raspberry Pi usando contenedores Docker. Afortunadamente, The Things Stack proporciona imágenes multiplataforma, incluyendo ARM, por lo que es posible ejecutarlo en una Raspberry P ([Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=The Things Stack now offers,such as the Raspberry Pi))】.
-
-**Pasos para desplegar TTS:**
-
-1. **Crear un archivo de configuración Docker Compose:** En la Raspberry Pi, crea un directorio de trabajo y dentro un archivo llamado `docker-compose.yml`. Por ejemplo:
-
-   ```bash
-   mkdir -p ~/tts-stack && cd $_
-   nano docker-compose.yml
-   ```
-
-   Copia y pega el siguiente contenido en `docker-compose.yml`:
-
-   ```yaml
-   version: '3'
-   services:
-     # Base de datos PostgreSQL (almacena información de TTS)
-     postgres:
-       image: postgres:14-alpine
-       container_name: tts-postgres
-       restart: unless-stopped
-       environment:
-         - POSTGRES_PASSWORD=ttspostgres
-         - POSTGRES_USER=tts
-         - POSTGRES_DB=ttn_lorawan
-       volumes:
-         - postgres-data:/var/lib/postgresql/data
-   
-     # Base de datos Redis (cache para TTS)
-     redis:
-       image: redis:6-alpine
-       container_name: tts-redis
-       restart: unless-stopped
-       command: redis-server --appendonly yes
-       volumes:
-         - redis-data:/data
-   
-     # The Things Stack (LoRaWAN Network Server)
-     stack:
-       image: xoseperez/the-things-stack:latest
-       container_name: tts-stack
-       restart: unless-stopped
-       depends_on:
-         - redis
-         - postgres
-       volumes:
-         - stack-blob:/srv/ttn-lorawan/public/blob
-         - stack-data:/srv/data
-       environment:
-         # Dominio o IP donde estará accesible la consola TTS
-         TTS_DOMAIN: "127.0.0.1"       # en este caso, usaremos la propia IP local de la Raspberry Pi
-         TTN_LW_BLOB_LOCAL_DIRECTORY: /srv/ttn-lorawan/public/blob
-         TTN_LW_REDIS_ADDRESS: redis:6379
-         TTN_LW_IS_DATABASE_URI: postgres://tts:ttspostgres@postgres:5432/ttn_lorawan?sslmode=disable
-         # Puedes añadir más variables de config si es necesario
-       ports:
-         # Puertos del servidor LoRaWAN (API, Consola, MQTT, etc.)
-         - "1700:1700/udp"   # Puerto UDP para tráfico LoRaWAN (Semtech UDP Packet Forwarder)
-         - "1885:1885"       # Consola web (HTTP) de TTS 
-         - "8885:8885"       # Consola web (HTTPS) de TTS
-         - "1883:1883"       # MQTT (publicación de datos)
-   volumes:
-     postgres-data:
-     redis-data:
-     stack-blob:
-     stack-data:
-   ```
-
-   Vamos a explicar brevemente esta configuración:
-
-   - Se definen tres servicios: **postgres** (base de datos SQL), **redis** (almacenamiento en memoria) y **stack** (el servicio principal The Things Stack). Cada uno usa una imagen Docker oficial o de la comunidad.
-   - Asignamos variables de entorno para que TTS sepa cómo conectarse a la base de datos y otras configuraciones. `TTS_DOMAIN` lo hemos puesto como `127.0.0.1` (localhost) por simplicidad; idealmente debería ser la IP local de tu Raspberry Pi o un nombre de host si has configurado uno. Esto se usa para generar certificados y URLs de la consola. Puedes reemplazar "127.0.0.1" por la IP fija de tu Pi en la red local, o un dominio local si tienes (por ejemplo `lorawan-gateway.local`).
-   - Mapeamos los **puertos** necesarios:
-     - UDP/1700: es el puerto por el que llegan los datos LoRaWAN desde la pasarela (usa el protocolo Semtech UDP Packet Forwarder).
-     - TCP/1885 y 8885: puertos HTTP y HTTPS para la interfaz web (Consola) de The Things Stack. Los hemos ligado a 1885 (en lugar del 1885 interno) y mapeado 443 a 8885 si quisieras acceder por HTTPS. En el ejemplo, accederemos por `http://IP_de_RPi:1885/` para usar la consola (o por `https://IP_de_RPi:8885/` con certificado autosignado).
-     - TCP/1883: puerto estándar MQTT, que TTS usa para publicar los datos de las aplicaciones. Así podremos conectar clientes MQTT a la Raspberry Pi para leer los datos de sensores.
-   - Usamos la imagen Docker de **xoseperez/the-things-stack**, que es una adaptación de TTS Community Edition para ARM (Raspberry Pi). Esta imagen nos simplifica la vida creando certificados y un usuario administrador por defecto. *Nota:* La primera vez que se ejecute, la imagen generará un usuario admin con contraseña por defecto, que cambiaremos luego por seguridad.
-
-   Guarda el archivo y cierra nano (Ctrl+O, Enter para guardar; Ctrl+X para salir).
-
-2. **Lanzar The Things Stack:** Con Docker Compose configurado, iniciemos los contenedores:
-
-   ```bash
-   docker-compose up -d
-   ```
-
-   La opción `-d` los ejecuta en segundo plano (modo *detached*). Docker descargará las imágenes necesarias (Postgres, Redis y TTS). Este paso puede tardar varios minutos la primera vez, dependiendo de tu conexión, ya que la imagen de TTS es algo pesada (contiene varios componentes). Ten paciencia.
-
-3. **Verificar que los servicios estén corriendo:** Ejecuta `docker-compose ps`. Deberías ver tres contenedores en estado "Up". También puedes ver los registros (logs) con `docker-compose logs -f stack` para monitorear el arranque de The Things Stack. Este, al inicializar por primera vez, creará la base de datos, las tablas necesarias, un usuario administrador, etc. Si todo va bien, después de unos instantes la consola web estará lista.
-
-4. **Acceder a la consola web de TTS:** Abre un navegador web en un dispositivo conectado a la misma red (puede ser tu PC) y entra a la dirección de la Raspberry Pi. Por ejemplo, si la Pi tiene IP `192.168.1.100` y usaste el puerto 1885, ve a: **http://192.168.1.100:1885/**. Debería cargar la interfaz de The Things Stack (The Things Industries).
-
-   - Inicia sesión con las **credenciales por defecto** que trae esta instalación: **usuario:** `admin`, **contraseña:** `changeme ([the-things-stack-docker/README.md at master · xoseperez/the-things-stack-docker · GitHub](https://github.com/xoseperez/the-things-stack-docker/blob/master/README.md#:~:text=Point your browser to the,to log in as administrator))】. *(Estas credenciales son creadas automáticamente por la imagen xoseperez/the-things-stack para facilitar el inicio.)*
-   - Importante: por seguridad, **cambia la contraseña del usuario administrador inmediatamente**. Para hacerlo, ve al menú de la console (esquina superior derecha) donde aparece "admin", entra en *User Management* o *Profile* y define una nueva contraseña segura. Así evitarás que alguien más acceda con la contraseña conocida.
-
-5. **Configurar parámetros básicos en The Things Stack:** Ahora estás dentro de la consola web de TTS. Algunas configuraciones que puedes hacer:
-
-   - Verifica en la sección *Network* que la instancia esté funcionando en modo single-tenant sin necesidad de licencias (debería, ya que es la versión open source).
-   - Puedes ajustar la información de servidor (por ejemplo, habilitar/inhabilitar el registro de Packet Broker, pero para una red local privada no es necesario tocar eso).
-   - Lo más importante vendrá más adelante: registrar los **Gateways** y **Devices** (nodos) en la consola, una vez tengamos el gateway configurado y las claves de los dispositivos. Esto lo haremos en las siguientes secciones.
-
-¡Felicidades! Ya tienes un servidor LoRaWAN funcionando localmente en tu Raspberry Pi. En términos de uso de recursos, ten en cuenta que TTS es una aplicación pesada (incluye servidor web, APIs, gestión de dispositivos, etc.), por lo que en una Raspberry Pi 3 puede consumir una buena parte de la CPU y memoria. Sin embargo, para un laboratorio con pocos dispositivos debe funcionar adecuadament ([GitHub - xoseperez/the-things-stack-docker: The Things Stack LoRaWAN Network Server (Open Source Edition) on a Raspberry Pi using docker](https://github.com/xoseperez/the-things-stack-docker#:~:text=Introduction))】.
-
-Antes de poder enviar/recibir datos, necesitamos poner en marcha el **gateway LoRa** (el módulo RAK2245 en la Raspberry Pi) y registrar ese gateway en The Things Stack.
-
-## Configuración de la pasarela LoRaWAN en la Raspberry Pi
-
-En este paso, configuraremos la Raspberry Pi con el módulo concentrador LoRa (RAK2245 u otro) para que funcione como gateway y se comunique con nuestro servidor TTS. Básicamente, debemos instalar el software de **packet forwarder** (reenvío de paquetes LoRa) y apuntarlo a nuestro servidor local.
-
-RAKwireless proporciona una herramienta que facilita esta configuración en Raspberry Pi OS. Usaremos el instalador **rak_common_for_gateway** de RAK, que detecta el modelo (RAK2245) y configura automáticamente el packet forwarder (basado en Semtech UDP) y utilidades como `gateway-config`.
-
-Sigue los pasos a continuación **en la Raspberry Pi** (con el módulo RAK2245 ya montado sobre los pines GPIO y su antena conectada):
-
-1. **Habilitar interfaces de hardware:** (Este paso lo hicimos en raspi-config, pero por si acaso) Asegúrate de haber activado SPI e I2C en la Raspberry Pi (ya se indicó en la sección anterior). Sin SPI habilitado, la Pi no podrá comunicarse con el concentrador LoRa vía GPIO.
-
-2. **Instalar dependencias e instalador RAK:** Ejecuta los siguientes comandos para clonar el repositorio de RAK y lanzar su instalado ([GitHub - RAKWireless/rak_common_for_gateway](https://github.com/RAKWireless/rak_common_for_gateway#:~:text=step3 %3A Clone the installer,help))】:
-
-   ```bash
-   sudo apt update && sudo apt install -y git
-   git clone https://github.com/RAKWireless/rak_common_for_gateway.git ~/rak_common_for_gateway
-   cd ~/rak_common_for_gateway
-   sudo ./install.sh
-   ```
-
-   El script `install.sh` te guiará por una serie de menús en la terminal:
-
-   - Primero te preguntará el modelo de gateway: en nuestro caso, elige **RAK2245** (probablemente la opción "1" ([GitHub - RAKWireless/rak_common_for_gateway](https://github.com/RAKWireless/rak_common_for_gateway#:~:text=step4 %3A Next you will,select the corresponding hardware model))】. Esto asegura que instale el software específico para RAK2245 Pi HAT.
-   - El instalador configurará los paquetes necesarios (como el forwarder LoRa Semtech) y podrá instalar también ChirpStack si uno lo elige. Por defecto, RAK suele habilitar un servidor LoRaWAN ChirpStack local, pero **nosotros planeamos usar The Things Stack**, así que luego ajustaremos eso.
-   - Espera a que complete la instalación (step5/step6 en los mensajes). Finalmente, el sistema se reiniciará o te sugerirá reiniciar (step6: "reboot your gateway ([GitHub - RAKWireless/rak_common_for_gateway](https://github.com/RAKWireless/rak_common_for_gateway#:~:text=Please enter 1,the model))】).
-
-3. **Configurar la pasarela con `gateway-config`:** Tras reiniciar, vuelve a conectarte a la Raspberry Pi. RAK provee la herramienta `gateway-config` para configurar parámetros de la pasarela. Ejecútala con:
-
-   ```bash
-   sudo gateway-config
-   ```
-
-   Aparecerá un menú de texto interactivo (usa las flechas y Enter para navegar). Las opciones principales incluyen cambiar contraseña, configurar el concentrador LoRa, reiniciar servicios, editar archivos, configurar WiFi, et ([Configuring Your Gateway | The Things Network](https://www.thethingsnetwork.org/docs/gateways/rak2245/configuring-gateway/#:~:text=1. Set pi password ,settings in order to connect))】. Realiza lo siguiente:
-
-   - **Set up RAK Gateway LoRa Concentrator (opción 2):** Dentro de esta opción podrás seleccionar la **banda de frecuencia** y el **servidor LoRaWAN** al que conectars ([Configuring Your Gateway | The Things Network](https://www.thethingsnetwork.org/docs/gateways/rak2245/configuring-gateway/#:~:text=You can choose one of,Servers here%3A TTN or ChirpStack))】.
-     - Elige la banda correspondiente a tu región (por ejemplo **EU868** para Europa, **US915** para EE.UU., etc.).
-     - Luego te preguntará el servidor: las dos opciones típicas son **TTN (The Things Network)** o **ChirpStack (local)* ([Configuring Your Gateway | The Things Network](https://www.thethingsnetwork.org/docs/gateways/rak2245/configuring-gateway/#:~:text=You can choose one of,Servers here%3A TTN or ChirpStack))】. Puesto que estamos usando The Things Stack local (que es similar a tener un servidor privado), puedes seleccionar **ChirpStack** para indicar que usarás un servidor privado. Esta opción suele configurar la pasarela para apuntar a `localhost` (la propia Raspberry Pi) en el puerto UDP 1700. Si eliges TTN, intentaría conectarse a los servidores públicos de The Things Network (no es lo que queremos en este caso).
-     - Confirma la configuración. El menú mostrará un mensaje de éxito al guardar la nueva frecuencia y servidor.
-   - **Configurar conexión de red del gateway:** Asegúrate de que la Raspberry Pi esté conectada a Internet (por Ethernet o configurando WiFi en la opción 5 del menú si lo necesitas). Esto es necesario si quisieras conectar a TTN. En nuestro caso, al ser servidor local, basta con que la Pi tenga conectividad consigo misma (lo cual siempre tiene). Pero si planeas monitorear o administrar la Pi remotamente, conviene que esté en tu red WiFi doméstica (puedes configurar la WiFi en *Configure Wi-Fi* desde este menú).
-   - Sal del menú y elige la opción de **Restart packet-forwarder** para reiniciar el servicio de forwarder (o simplemente reinicia la Raspberry Pi). Esto aplicará los cambios.
-
-4. **Verificar que el packet forwarder esté enviando datos:** El packet forwarder de Semtech típicamente corre como un servicio del sistema. Puedes ver su log con:
-
-   ```bash
-   sudo journalctl -f -u ttn-gateway
-   ```
-
-   (En algunas imágenes el servicio se llama `ttn-gateway` o `packet-forwarder`.) Deberías ver líneas indicando que el concentrador está encendido, y mensajes del tipo “GPS module” o “SX130X” inicializados. Cuando los nodos empiecen a transmitir, aquí verás los paquetes recibidos.
-
-   Si algo falla en este punto (por ejemplo, que el concentrador no inicie), revisa que el módulo RAK esté bien colocado y que habilitaste SPI/I2C correctamente. La herramienta `gateway-config` simplifica mucho este proceso de configuración del concentrador en la Raspberr ([Configuring Your Gateway | The Things Network](https://www.thethingsnetwork.org/docs/gateways/rak2245/configuring-gateway/#:~:text=Assuming you have successfully logged,command in the command line)) ([Configuring Your Gateway | The Things Network](https://www.thethingsnetwork.org/docs/gateways/rak2245/configuring-gateway/#:~:text=You can choose one of,Servers here%3A TTN or ChirpStack))】.
-
-Ahora el gateway LoRaWAN (pasarela) debería estar operativo en la Raspberry Pi. **Pero aún falta registrar el gateway en The Things Stack** para que el servidor lo reconozca y acepte sus paquetes.
-
-1. **Registrar el Gateway en The Things Stack (TTS):** Ve a la consola web de The Things Stack (http://IP_RPi:1885/) que dejamos funcionando. Inicia sesión si no lo hiciste.
-
-   - Navega a la sección **Gateways** (en el menú principal). Haz clic en "**Register Gateway**" para añadir una nueva pasarel ([Adding Gateways | The Things Stack for LoRaWAN](https://www.thethingsindustries.com/docs/hardware/gateways/concepts/adding-gateways/#:~:text=,Console))】.
-   - Completa el formulario de registro del gateway:
-     - **Gateway EUI:** es el identificador único de la pasarela. Debes obtenerlo del gateway. Puedes encontrarlo ejecutando `gateway-version` en la Raspberry Pi, como sugiere RAK (este comando suele mostrar el EUI ([Configuring Your Gateway | The Things Network](https://www.thethingsnetwork.org/docs/gateways/rak2245/configuring-gateway/#:~:text=There is also another way,below in the command line))】. También aparece en el menú de `gateway-config` o en los logs de inicio. Será un número hexadecimal de 16 dígitos (por ejemplo, **B827EBFFFE123456**). Introdúcelo en el campo EUI (sin guiones).
-     - **Gateway ID:** un nombre identificador a tu elección (ejemplo: "raspi-gateway-1"). Este es un nombre amigable sin espacios.
-     - **Frequency Plan:** selecciona el plan de frecuencias correspondiente (ej: EU_863_870 para EU868, US_902_928_FSB_2 para US915, etc.). Debe coincidir con lo que configuraste en el gateway.
-     - **Gateway Server address:** si pregunta (en TTS open source puede que no pregunte explícitamente), sería la dirección del servidor a donde conectará. En nuestro caso, es la misma Raspberry Pi. Si TTS está en la misma máquina, "localhost" o la IP local valen. Pero dado que el forwarder ya está apuntando a localhost, este ajuste puede no ser necesario en la consola (TTS simplemente espera paquetes en su puerto).
-     - Deja las otras opciones por defecto a menos que sepas cambiarlas (p.ej., el gateway no tiene autenticación específica de servidor UDP).
-     - Guarda/crea el gateway.
-   - Una vez registrado, en la consola de TTS el gateway aparecerá con su EUI y como **conectado** (Connected) si todo está bien. Puede tardar unos segundos en reflejar el estado. Básicamente, cuando el packet forwarder envía paquetes "PUSH_DATA" al servidor TTS, éste reconoce el EUI y lo marca en línea. En la sección de **Live Data** del gateway en la consola de TTS deberías ver los paquetes uplink cuando los nodos comiencen a transmitir.
-
-   > 💡 *Consejo:* The Things Stack Community Edition (open source) **no requiere autenticación para gateways usando el protocolo Semtech UDP**. A diferencia del protocolo LNS (Basics Station) que sí usa una clave, el Semtech UDP forwarder simplemente identifica por EUI. Por ello, asegúrate de que el EUI esté correcto y registrado. En un despliegue local cerrado, esta simplicidad está bien, pero ten en cuenta que no hay cifrado en el enlace Gateway <-> Server con este protocolo. Para mayor seguridad se podría usar el protocolo Basics Station, pero es más complejo de configurar. En nuestro caso, mantener Semtech UDP es suficiente para iniciar pruebas.
-
-Llegados a este punto, tenemos nuestra infraestructura LoRaWAN local completa: la **pasarela** (Raspberry Pi + RAK2245) comunicándose con el **Network Server** (The Things Stack en Docker). Cuando los nodos LoRaWAN envíen mensajes, llegarán a la Pi, el packet forwarder los pasará a TTS, y podremos verlos en la consola. Resta configurar y programar los **nodos ESP32 (dispositivos finales)** para que se unan a la red y envíen datos útiles.
-
-## Programación de los módulos ESP32 como nodos LoRaWAN (MicroPython)
-
-Para los nodos utilizaremos placas ESP32 con módulo LoRa incorporado. Las programaremos con **MicroPython**, un lenguaje de scripting (derivado de Python) muy adecuado para prototipos y educación, que corre en microcontroladores. MicroPython nos permite escribir código de forma rápida sin necesidad de compilar, y es más fácil de entender para principiantes que el código C/C++ típico del Arduino.
-
-En esta sección haremos lo siguiente:
-
-- Instalar MicroPython en las placas ESP32 LoRa.
-- Escribir un script de ejemplo que envíe datos mediante LoRaWAN al servidor (nuestra pasarela).
-- Explicar cómo “provisionar” o configurar los nodos de forma cómoda, incluso inalámbricamente (vía Bluetooth o WiFi AP), para no tener que reprogramar el código cada vez que cambie una clave o parámetro.
-
-### Instalación de MicroPython en el ESP32
-
-**¿Por qué MicroPython?** Porque nos permite usar Python (un lenguaje sencillo) en el ESP32. Esto es genial si no estás familiarizado con C/C++. Por ejemplo, un autor señala: *"como no estoy muy familiarizado con C(++), preferí usar MicroPython; pero antes de poder copiar archivos .py al dispositivo, necesitas flashear el firmware MicroPython en el ESP32 ([How I sent my first LoRaWAN message to The Things Network using a TTGO ESP32 & Micropython | by Joost Buskermolen | Medium](https://medium.com/@JoooostB/how-i-send-my-first-lorawan-message-to-the-things-network-using-a-ttgo-esp32-micropython-a3fe447fff82#:~:text=As I’m not too familiar,flash storage of the ESP32))9】. Esa es la idea: primero cargaremos el firmware MicroPython en cada ESP32, luego subiremos nuestros scripts Python.
-
-Los pasos para instalar MicroPython en una placa ESP32 son:
-
-1. **Descargar el firmware MicroPython:** Ve a la página oficial de MicroPython y busca la sección de descargas para ESP32. Puedes usar el firmware genérico para ESP32. Por ejemplo, un archivo `.bin` llamado `esp32-<version>.bin` (elige la última versión estable, y si tu placa tiene 4MB de flash, la estándar es suficiente; si tiene SPIRAM, quizá haya un firmware específico “spiram”).
-
-   - Página de descargas: https://micropython.org/download/esp32/ (busca un .bin apropiado, e.g. *ESP32 Generic ([How I sent my first LoRaWAN message to The Things Network using a TTGO ESP32 & Micropython | by Joost Buskermolen | Medium](https://medium.com/@JoooostB/how-i-send-my-first-lorawan-message-to-the-things-network-using-a-ttgo-esp32-micropython-a3fe447fff82#:~:text=flashing MicroPython,should take about a minute))9】.
-
-2. **Conectar el ESP32 al PC:** Usa un cable USB para conectar la placa de desarrollo ESP32 a tu ordenador. Debería detectarse como un puerto serie (en Windows un COMx, en Linux/macOS algo como `/dev/ttyUSB0` o `/dev/tty.SLAB_USBtoUART` dependiendo del chip USB->Serial de la placa).
-
-3. **Borrar flash (opcional pero recomendado):** Abre una terminal/símbolo del sistema en tu PC y ejecuta el comando de **esptool.py** para borrar la flash del ESP32:
-
-   ```bash
-   esptool.py --chip esp32 --port <PUERTO> erase_flash
-   ```
-
-   Reemplaza `<PUERTO>` por el nombre del puerto detectado (ej: `COM3` en Windows, `/dev/ttyUSB0` en Linux). `esptool.py` es una herramienta de Python para programar ESP32; si no la tienes instalada, instálala con `pip3 install esptoo ([How I sent my first LoRaWAN message to The Things Network using a TTGO ESP32 & Micropython | by Joost Buskermolen | Medium](https://medium.com/@JoooostB/how-i-send-my-first-lorawan-message-to-the-things-network-using-a-ttgo-esp32-micropython-a3fe447fff82#:~:text=Installing the tool is as,installed both Python and pip))5】. Borrar la flash asegura que no queden restos de firmwares anteriores.
-
-4. **Flashear MicroPython:** Ahora carga el firmware .bin de MicroPython al ESP32 con esptool:
-
-   ```bash
-   esptool.py --chip esp32 --port <PUERTO> --baud 460800 write_flash -z 0x1000 esp32-X.Y.Z.bin
-   ```
-
-   (Cambia `esp32-X.Y.Z.bin` por el nombre exacto del archivo que descargaste, p. ej. `esp32-20230117-v1.19.1.bin`). La dirección `0x1000` es la posición típica de arranque para ESP32. La velocidad 460800 acelera la transferencia (puedes usar 115200 si tienes problemas). Si todo va bien, verás un mensaje de que se escribió exitosamente. Ahora la placa debería reiniciar con MicroPython instalado.
-
-5. **Verificar prompt de MicroPython:** Para confirmar, puedes abrir un terminal serial a la placa (con programa como PuTTY, TeraTerm o screen). Configura el puerto y velocidad 115200 baudios. Al conectarte, deberías ver un prompt que dice `>>>` (el REPL de MicroPython). Si escribes `print("hola")` y presionas Enter, debería responder con `hola`. ¡Tu ESP32 ya ejecuta MicroPython!
-
-   Otra manera más cómoda: puedes utilizar el **IDE Thonny** ([https://thonny.org](https://thonny.org/)). Thonny es un entorno Python para PC que reconoce microcontroladores con MicroPython. Desde Thonny puedes abrir una consola interactiva del ESP32 y también transferir archivos fácilmente. Si eres principiante, Thonny puede simplificar mucho las cosas (selecciona MicroPython/ESP32 en la esquina inferior derecha y el puerto correspondiente, luego abre la consola).
-
-### Script de ejemplo: envío de datos LoRaWAN en MicroPython
-
-Ahora viene la parte importante: hacer que el ESP32 se una a la red LoRaWAN y envíe datos. Para ello, necesitaremos:
-
-- Las **credenciales LoRaWAN** del dispositivo (DevAddr, NwkSKey, AppSKey si usamos ABP; o AppKey, DevEUI, AppEUI si usamos OTAA).
-- Un código en MicroPython que configure la radio LoRa y envíe un paquete usando esas claves.
-
-Para simplificar, usaremos el método **ABP (Activation By Personalization)** en nuestros nodos. ABP nos permite definir directamente la dirección del dispositivo y las claves de sesión, evitando el proceso de join OTAA. Es menos seguro a largo plazo (porque las claves son fijas), pero para pruebas locales es más fácil y rápido (no dependemos de mensajes de join accept). Podemos deshabilitar los checks de frame counter para no tener problemas si reiniciamos el nodo durante pruebas.
-
-**Paso 1: Registrar el dispositivo en TTS (ABP)** – Ve a la consola de The Things Stack, sección **Applications**. Crea una aplicación (ej: "mi-app-sensores"). Dentro de la aplicación, elige **+ Add end device**. Puedes cargar una plantilla LoRaWAN, pero aquí hazlo manual:
-
-- Elige LoRaWAN version MAC 1.0.3 (por ejemplo) y Regional Parameters PHY correspondiente (e.g. EU868).
-- Marca la opción de **Activation by Personalization (ABP)** en lugar de OTAA.
-- Deja que genere automáticamente un DevAddr (o pon uno, asegurándote que los primeros bits correspondan a la red privada, típicamente DevAddr empieza con 0x26 algo para redes TTN, pero en una privada puedes usar cualquier rango no conflictivo).
-- Obtén el **DevAddr**, **NwkSKey** y **AppSKey** que asigna. Apunta estos valores en formato hexadecimal (los verás en la consola al completar el registro). También anota el **DevEUI** (aunque para ABP no se usa en la comunicación, pero sirve de identificador en la consola).
-- En la configuración del dispositivo en la consola TTS, busca ajustes como “Frame counter checks” y **desactívalos** (esto está en la pestaña de *Network Layer*, disable frame counter checks). Así evitas que el servidor ignore tus mensajes si reseteas el contador al reiniciar el nodo durante prueb ([How I sent my first LoRaWAN message to The Things Network using a TTGO ESP32 & Micropython | by Joost Buskermolen | Medium](https://medium.com/@JoooostB/how-i-send-my-first-lorawan-message-to-the-things-network-using-a-ttgo-esp32-micropython-a3fe447fff82#:~:text=Immediately after creating the device%2C,to modify the following values))8】.
-- Guarda la configuración. Ya tienes las claves necesarias para el nodo.
-
-**Paso 2: Código MicroPython en el ESP32** – Ahora vamos a cargar un script al ESP32 con MicroPython que use esas claves para enviar un paquete. Para manejar LoRaWAN en MicroPython, aprovecharemos una biblioteca llamada **uLoRa** (micro LoRa) que es un port de la librería TinyLoRa de Adafru ([GitHub - fantasticdonkey/uLoRa: LoRa / LoRaWAN + TTN for MicroPython (ESP32)](https://github.com/fantasticdonkey/uLoRa#:~:text=Objecive))1】. Esta librería se compone de un par de módulos Python (`ulora.py`, `ulora_encryption.py`, etc.) que se ocupan de la comunicación LoRaWAN de bajo nivel (configurar el radio SX1276, formar el paquete LoRaWAN con las cabeceras correctas, cifrar el payload con AES128, etc.).
-
-En concreto, uLoRa permite hacer envío de tipo **unconfirmed uplink** en ABP fácilmente. Vamos a usarla.
-
-**Obtén la librería uLoRa:** Puedes encontrar el código en GitHub (repositorio "fantasticdonkey/uLoRa"). Para no complicarnos, aquí proporcionamos un script completo que incluye lo necesario. Podrás copiarlo tal cual a tu ESP32.
-
-A continuación un **ejemplo de script MicroPython** para un nodo LoRaWAN ABP. Este script envía periódicamente (cada minuto) un mensaje con un valor de ejemplo (por ejemplo, lectura de un sensor simulada). Asegúrate de reemplazar las claves por las tuyas de TTS:
-
-```python
-# LoRaWAN ABP node example for ESP32 (MicroPython)
-
-from machine import SPI, Pin
-import time
-import ubinascii
-
-# --- Configura los pines según tu placa ESP32 LoRa ---
-# Estos valores son para Heltec WiFi LoRa 32 V2 (pueden variar en otra placa):
-LORA_CS  = 18    # Chip select del SX1276
-LORA_RST = 14    # Reset del SX1276
-LORA_MOSI = 27   # SPI MOSI
-LORA_MISO = 19   # SPI MISO
-LORA_SCK = 5     # SPI SCK
-LORA_IRQ = 26    # DIO0 pin del SX1276 (indica fin de TX/RX)
-
-# --- Claves LoRaWAN (ABP) proporcionadas por The Things Stack ---
-DEV_ADDR = bytearray([0x26, 0x01, 0x1A, 0xXX])  # Reemplaza por tu DevAddr (4 bytes en hex MSB)
-NWK_SKEY = bytearray([0xAA, 0xBB, 0xCC, 0x... ])  # Reemplaza con tu Network Session Key (16 bytes)
-APP_SKEY = bytearray([0x11, 0x22, 0x33, 0x... ])  # Reemplaza con tu App Session Key (16 bytes)
-
-# (Puedes copiar/pegar los valores hexadecimales tal como los da la consola TTN, separándolos con comas)
-
-# --- Configura la región ---
-LORA_REGION = 'EU'   # 'EU' para EU868, 'US' para US915, etc.
-
-# Importa la librería uLoRa (deberás tener los módulos ulora.py y ulora_encryption.py en la placa)
-from ulora import TTN, uLoRa
-
-# Configuración de TTN/LoRaWAN con las claves
-ttn_config = TTN(DEV_ADDR, NWK_SKEY, APP_SKEY, country=LORA_REGION)
-
-# Inicializa SPI
-spi = SPI(1, baudrate=10000000, polarity=0, phase=0, bits=8,
-          firstbit=SPI.MSB, sck=Pin(LORA_SCK, Pin.OUT),
-          mosi=Pin(LORA_MOSI, Pin.OUT), miso=Pin(LORA_MISO, Pin.IN))
-
-# Pin para Chip Select (CS) del LoRa
-cs = Pin(LORA_CS, Pin.OUT, value=1)
-# Pin de Reset del LoRa
-rst = Pin(LORA_RST, Pin.OUT, value=1)
-# Pin de interrupción DIO0
-irq = Pin(LORA_IRQ, Pin.IN)
-
-# Crea instancia LoRa (usando la config de TTN y los pines)
-lora = uLoRa(spi=spi, cs=cs, irq=irq, rst=rst, ttn_config=ttn_config)
-
-# Contador de tramas (frame counter)
-frame_counter = 0
-
-# Bucle principal: enviar un mensaje cada 60 segundos
-while True:
-    # Ejemplo: payload con un número incremental (2 bytes) 
-    # (En un caso real podría ser una lectura de sensor)
-    value = frame_counter & 0xFFFF  # solo 2 bytes inferiores
-    payload = value.to_bytes(2, 'big')  # convierte int a bytes (2 bytes, big-endian)
-    
-    # Enviar por LoRaWAN
-    try:
-        lora.send_data(payload, len(payload), frame_counter)
-        print("Paquete enviado:", ubinascii.hexlify(payload), "Contador:", frame_counter)
-        frame_counter += 1
-    except Exception as e:
-        print("Error al enviar:", e)
-    
-    # Esperar 60 segundos antes del siguiente envío
-    time.sleep(60)
+```Dockerfile
+FROM python:3.10-slim-buster  # imagen base oficial con soporte ARM
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt   # FastAPI, uvicorn, pydantic, etc.
+COPY . .
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-Algunas notas sobre este código:
+Este Dockerfile copia el código de la API (suponiendo que el módulo principal se llama `main.py` y crea un objeto `app`). La API se lanza con Uvicorn escuchando en todas las interfaces al puerto 8000. Construimos la imagen en la Raspberry Pi con `docker build -t fastapi-lora:latest .`. Luego, ejecutamos el contenedor mapeando el puerto: por ejemplo `docker run -d --restart unless-stopped -p 8000:8000 fastapi-lora:latest`. Con `-p 8000:8000` exponemos el puerto contenedor 8000 en el puerto 8000 de la Raspberry Pi. La opción `--restart unless-stopped` asegura que el contenedor se reinicie automáticamente al arrancar la Pi.
 
-- Definimos los pines basándonos en una placa Heltec LoRa. Si usas TTGO LoRa32 v1/v2, los pines podrían ser distintos. Consulta la documentación de tu placa para SPI y DIO0. Por ejemplo, en algunas TTGO, DIO0 está en GPIO 35. Asegúrate de ajustarlo.
-- Usamos las claves en formato **MSB** (most significant byte first). TTS entrega las claves en MSB por defec ([How I sent my first LoRaWAN message to The Things Network using a TTGO ESP32 & Micropython | by Joost Buskermolen | Medium](https://medium.com/@JoooostB/how-i-send-my-first-lorawan-message-to-the-things-network-using-a-ttgo-esp32-micropython-a3fe447fff82#:~:text=will be shown,later in our code))9】. Si las tienes en formato LSB, inviértelas o presiona el botón de intercambio en la consola de TTS.
-- La librería uLoRa (debe estar cargada en la placa). ¿Cómo cargarla? Puedes obtener los archivos `ulora.py` y `ulora_encryption.py` del repositorio GitHub y subirlos a tu ESP32 (por FTP, Thonny o ampy). Por simplicidad, podrías copiar el contenido de esos archivos y pegarlos al principio de tu script, pero lo mejor es cargarlos como módulos separados para reutilización. En Thonny, puedes arrastrar los archivos al sistema de archivos de la placa.
-- El objeto `TTN` es inicializado con DevAddr, NwkSKey, AppSKey y la región. Luego creamos el objeto `uLoRa` pasando la configuración TTN y los pines/SPI. Internamente esto configura el chip de radio SX1276 a la frecuencia, potencia y SF predeterminados para esa región (por defecto SF7BW125, que está bien para empezar).
-- **frame_counter:** en ABP, es crucial llevar la cuenta del contador de trama manualmente. En el ejemplo, usamos una variable `frame_counter` que incrementamos en cada envío y pasamos a `send_data()`. The Things Stack espera que cada paquete ABP tenga contador incrementado (salvo que desactivamos el check, pero igual lo incrementamos para buen hábito).
-- El payload que enviamos es un número de 2 bytes (podría ser, por ejemplo, una lectura de sensor simulada). Lo convertimos a bytes y lo enviamos. En TTS, puedes definir un *Payload Formatter* para decodificar esos bytes a valores legibles si quieres (por ahora, veremos los datos en hex).
-- Ponemos el código en un bucle infinito con `time.sleep(60)` para enviar cada minuto. Puedes ajustarlo a tu necesidad (pero recuerda que LoRaWAN tiene duty cycle y fairness: no envíes con intervalos demasiado cortos).
+Es aconsejable utilizar **Docker Compose** para orquestar varios servicios. Podríamos definir un `docker-compose.yml` que levante: (1) el servicio `fastapi` (como arriba), (2) un servicio `mqtt` usando la imagen oficial de Eclipse Mosquitto, y opcionalmente (3) servicios de ChirpStack si se opta por LoRaWAN completo. Por ejemplo, Mosquitto puede correr en el puerto 1883 para entregar mensajes MQTT. La API FastAPI podría también comunicarse con el broker (por ejemplo, usando Paho MQTT client) para publicar las respuestas a los nodos.
 
-**Paso 3: Cargar y ejecutar el código en el ESP32** – Usa tu método preferido (Thonny IDE, por ejemplo):
+Tras desplegar, confirmamos que la API FastAPI esté accesible en la Raspberry Pi (por ejemplo, haciendo `curl localhost:8000/docs` se vería la documentación interactiva). Recuerde que en la arquitectura propuesta, los usuarios normalmente no accederán directamente por IP a la Raspberry (porque posiblemente no están en la misma red), sino a través de los nodos ESP32. Aún así, exponer el puerto 8000 permite acceder a la API desde la red local (útil para depuración o para un front-end conectado si existiera).
 
-- Conecta a la consola MicroPython de la placa.
-- Crea un nuevo archivo, pega el código, modifica las claves y pines según corresponda.
-- Guarda el archivo en la placa, por ejemplo como `main.py`. (En MicroPython, si guardas el script como `main.py`, se ejecutará automáticamente al reiniciar la placa).
-- Reinicia el ESP32 (pulsa reset o en Thonny selecciona *Stop/Restart*). Deberías ver en la consola mensajes indicando "Paquete enviado: ..." cada minuto.
+**Nota:** La Raspberry Pi debe tener configurada una red IP para fines administrativos (por ejemplo WiFi o Ethernet local) aunque los clientes no la usen directamente. Además, asegurarse de que Docker tenga permiso de acceder a SPI (en caso de querer interactuar directamente con el HAT LoRa desde un contenedor, se puede pasar el dispositivo /dev/spidev correspondiente al contenedor; aunque en nuestra solución el manejo LoRa lo haremos probablemente desde el host o un servicio especializado, no necesariamente dentro del contenedor FastAPI).
 
-Si todo está configurado correctamente, el nodo debería comenzar a transmitir sus paquetes LoRaWAN. La pasarela los recibirá y los pasará a TTS, donde se asociarán con tu dispositivo registrado (gracias al DevAddr y las claves coincidentes). Puedes verificar en la consola de TTS:
+## Configuración del HAT LoRa en la Raspberry Pi (LoRaWAN y comunicación)
 
-- Ve a tu aplicación, entra en el dispositivo correspondiente y abre la pestaña de **Live data**. Deberías ver eventos de **up-link** con los datos en hexadecimal. Por ejemplo, `payload: 0005` (cada vez con un número diferente en hex, que corresponde a tu contador) y `FCnt` (frame counter) incrementándose.
-- También en la vista del gateway en TTS verás los uplinks llegando, con la indicación del EUI del gateway, RSSI, SNR, etc.
+Para que la Raspberry Pi se comunique vía LoRa, debemos configurar el HAT **MeshAdv-Pi** conectado a sus pines. Este HAT utiliza la interfaz SPI de la Pi para interactuar con el chip de radio LoRa. Los pasos principales son:
 
-¡Enhorabuena! Has conseguido que un nodo ESP32 envíe datos vía LoRaWAN a tu propia pasarela y servidor. Desde aquí, podrías conectar esos datos a tu aplicación final.
+- **Habilitar SPI en la Raspberry Pi:** Editar `/boot/config.txt` o usar `raspi-config` para activar la interfaz SPI (si no lo está ya). Tras habilitar y reiniciar, verificar que existe el dispositivo `/dev/spidev0.0` (SPI0, CE0). El HAT suele usar ese bus para el transceptor LoRa.
+- **Instalar software de LoRaWAN Gateway (opcional):** Si seguimos el estándar LoRaWAN, podemos instalar un *packet forwarder* y un Network Server local. Una ruta recomendable es usar **ChirpStack** en la propia Pi. ChirpStack proporciona contenedores Docker para todos sus componentes (puente de gateway, network server, aplicación) ([Docker - ChirpStack open-source LoRaWAN® Network Server ...](https://www.chirpstack.io/docs/getting-started/docker.html#:~:text=,you getting started with ChirpStack)) ([Setup ChirpStack using Docker Compose - GitHub](https://github.com/chirpstack/chirpstack-docker#:~:text=Setup ChirpStack using Docker Compose,v4) using Docker Compose)). En un despliegue completo, correríamos: ChirpStack Gateway Bridge (para interactuar con el concentrador LoRa), ChirpStack Network Server (gestiona LoRaWAN MAC, datos), y ChirpStack Application Server (exponiendo datos vía MQTT/REST). Sin embargo, dado que nuestro HAT no es un concentrador LoRaWAN multicanal, sino un transceptor LoRa de un solo canal, la configuración será **single-channel**.
 
-### Provisión y configuración de nodos (Bluetooth / Wi-Fi AP)
+**Importante:** Las soluciones *single-channel gateway* son útiles para prototipos, pero **no cumplen completamente el estándar LoRaWAN** ([Use Lora Shield and RPi to Build a LoRaWAN Gateway : 10 Steps (with Pictures) - Instructables](https://www.instructables.com/Use-Lora-Shield-and-RPi-to-Build-a-LoRaWAN-Gateway/#:~:text=,and will never be)). Solo pueden escuchar una frecuencia y un SF a la vez, lo que limita severamente la compatibilidad con dispositivos LoRaWAN normales (que hoppean entre 8 canales). Aun así, para un entorno controlado donde los nodos transmiten siempre en la misma frecuencia/SF, es viable.
 
-Cuando tienes pocos dispositivos, configurar las claves en el código (como hicimos con ABP) es manejable. Pero en escenarios más grandes o en producción, querrás una forma más cómoda de **provisionar** dispositivos sin reprogramarlos uno por uno. Aquí discutimos brevemente dos métodos posibles con ESP32:
+- **Configuración single-channel:** Podemos usar proyectos existentes que convierten un transceptor SX127x en gateway de un canal. Por ejemplo, el *Single Channel Packet Forwarder* de Thomas Telkamp (adaptado para Raspberry Pi) o herramientas que implementa ChirpStack Gateway Bridge con radio SX127x. Básicamente, configuramos la frecuencia central (ej. 868.1MHz) y SF fijo (ej. SF7) en ambos nodos y Pi. Se editaría un archivo de configuración `global_conf.json` indicando la frecuencia única soportada. Con ChirpStack, registraríamos un gateway fake de 1 canal. Los **nodos ESP32** deben ser programados para usar exactamente ese canal y SF en sus emisiones.
+- **Broker MQTT local:** Ya sea usando ChirpStack o un script casero, la idea es que los datos de los nodos lleguen a la Pi y se publiquen en MQTT internamente. Si se usa ChirpStack Application Server, éste por defecto publica los datos de uplinks en tópicos MQTT del tipo `application/+/device/+/rx` y escucha comandos de downlink en `application/+/device/+/tx` ([Storing Data locally in Raspberry-Pi with Lorawan Gateway - WisGate Connect RAK7391 - RAKwireless Forum](https://forum.rakwireless.com/t/storing-data-locally-in-raspberry-pi-with-lorawan-gateway/9729#:~:text=The simplest one ,MQTT instead of TTN’s MQTT)). Podemos aprovechar eso: los ESP32 enviarían su petición como carga de un uplink LoRaWAN, la recibiríamos vía MQTT local, y para la respuesta generaríamos un downlink MQTT que ChirpStack transmite cuando corresponda. Sin ChirpStack, podemos implementar nuestro propio protocolo MQTT sobre LoRa: por ejemplo, programar la Pi para leer datos crudos del HAT LoRa (usando una librería Python, como `pyLoRa` o incluso utilizando el demonio Meshtastic en modo cliente) y luego publicar esos datos en Mosquitto.
 
-- **Vía Bluetooth (BLE):** El ESP32 puede actuar como dispositivo Bluetooth Low Energy. Podrías programar un modo de configuración en el que el ESP32 se anuncie por BLE, y mediante una app móvil enviarle parámetros (por ejemplo, las claves LoRaWAN, o credenciales WiFi si necesitara). MicroPython tiene soporte básico de BLE (usando el módulo `bluetooth`). Podrías, por ejemplo, implementar un servicio GATT donde escribiendo ciertas características almacenes el DevAddr, NwkSKey, AppSKey en la NVM (por ejemplo en la memoria Flash del ESP32, quizás en un archivo de configuración). Una vez enviados, el dispositivo sale del modo configuración y comienza a operar normalmente. Este proceso permitiría a un usuario final configurar un nodo vía smartphone sin tocar el código.
-- **Vía Wi-Fi AP (Access Point):** Otra alternativa es hacer que el ESP32, al inicio, si detecta por ejemplo un botón presionado o que no tiene claves guardadas, levante una red Wi-Fi propia (el ESP32 puede crear un AP). El dispositivo crearía una Wi-Fi llamada, por ejemplo, "NodoLoRaWAN-Config", a la que el usuario se conecta con su teléfono. Luego, el ESP32 podría servir una pequeña página web (usando sockets TCP en MicroPython) donde el usuario introduce los parámetros (claves LoRaWAN, etc.). Al enviar el formulario, el ESP32 guarda esos datos y reinicia en modo normal. Este método de “config portal” es común en IoT para configurar Wi-Fi; aquí lo reutilizamos para LoRaWAN. La ventaja es que no requiere una app móvil especializada, solo un navegador web. La desventaja es que consume más energía y es más complejo en el microcontrolador.
+En caso de **no usar LoRaWAN completo**, se puede optar por ejecutar un **demonio Meshtastic** en la Raspberry Pi. Meshtastic es un firmware/protocolo de malla sobre LoRa. El MeshAdv-Pi HAT fue diseñado para funcionar con Meshtastic, ejecutando un programa llamado `meshtasticd` en Linux ([Meshtastic on Linux-Native Devices | Meshtastic](https://meshtastic.org/docs/hardware/devices/linux-native-hardware/#:~:text=Image%3A Meshtasticd Terminal Light)) ([Meshtastic on Linux-Native Devices | Meshtastic](https://meshtastic.org/docs/hardware/devices/linux-native-hardware/#:~:text=,pin conflicts when stacking hats)). Si cargáramos Meshtastic en los ESP32 en lugar de MicroPython, podríamos tener una red mesh LoRa funcionando de fábrica. Sin embargo, aquí preferimos MicroPython en los nodos para mayor control. Aun así, podríamos hacer que la Pi corra meshtasticd en modo “cliente mudo” para simplemente retransmitir mensajes. Esto excede el alcance, por lo que asumiremos mejor un esquema simpler de punto a punto o LoRaWAN.
 
-Ambas opciones requieren algo más de programación, pero son viables. En nuestro contexto educativo, mencionamos esto para conocer que existen caminos para no tener que **hardcodear** las claves siempre. Por simplicidad en este proyecto, hemos configurado directamente en código las claves del nodo.
+**Configuración del HAT (resumen):**
 
-En un entorno real, también podrías combinar LoRaWAN OTAA con alguna forma de provisionado de AppKeys más segura. Pero OTAA en MicroPython es más complicado porque tendrías que implementar la recepción del join-accept. La librería uLoRa por ahora se enfoca en ABP (a fecha de la referencia, solo uplinks no confirmado ([GitHub - fantasticdonkey/uLoRa: LoRa / LoRaWAN + TTN for MicroPython (ESP32)](https://github.com/fantasticdonkey/uLoRa#:~:text=The project is currently being,in a limited capacity using))2】.
+1. Conectar el HAT a la Raspberry Pi y verificar que esté reconocido. Algunos HATs pueden requerir habilitar alimentación a ciertos pines o instalar un overlay en config.txt (consultar documentación del MeshAdv-Pi HAT).
+2. Probar comunicación básica con el transceptor. Por ejemplo, usar una librería de Python (existen forks de la librería RadioHead o examples con pigpio) para enviar/recibir un paquete LoRa desde la Pi. Asegurarse de configurar los mismos parámetros (freq, SF, BW, CR) que los nodos ESP32.
+3. Instalar Mosquitto MQTT broker en la Pi (si no usamos ChirpStack’s MQTT). Configurarlo para que escuche en localhost (por seguridad, puede estar solo local ya que solo la FastAPI y procesos internos lo usan).
+4. (Si LoRaWAN) Deployar ChirpStack: registrar un **dispositivo** por cada nodo ESP32, usando DevAddr, NwkSKey y AppSKey precompartidas (modo ABP para simplificar, así los ESP32 transmiten directamente sin procedimiento de join). Configurar el **gateway** single-channel en ChirpStack. Verificar en logs que cuando el nodo envía, ChirpStack lo recibe.
+5. Programar la **pasarela de mensajes**: puede ser un pequeño servicio Python que suscriba al broker MQTT a los tópicos de peticiones (ya sea directamente de Mosquitto en caso de protocolo propio, o de ChirpStack Application MQTT if LoRaWAN). Al recibir una petición, ese servicio invocará la API FastAPI (por ejemplo usando una llamada HTTP local `http://localhost:8000/endpoint` o importando la función Python de la lógica). Obtendrá la respuesta y la publicará en el tópico de respuesta correspondiente para que llegue al nodo. Este componente puede integrarse dentro de la propia aplicación FastAPI (ej., con un background task que escuche MQTT), o como un servicio separado.
 
-## Integración de The Things Stack con la aplicación mediante MQTT/HTTP
+En resumen, la Raspberry Pi quedará ejecutando: *Docker (FastAPI)*, *Broker MQTT*, y *gateway LoRa*. El gateway LoRa puede ser ChirpStack+packet-forwarder o un script Python. De cualquier modo, el resultado es que la Pi puede **recibir y transmitir mensajes LoRa**. En la práctica, se está creando un **puente LoRa-MQTT** en la Raspberry Pi. Esto es conceptualmente similar a otros proyectos DIY de gateway: por ejemplo, existe un proyecto que construye un gateway LoRa–MQTT con un ESP32 + módulo Ebyte E32/E220 ([GitHub - ezcGman/lora-gateway: Gateway to create a bridge between your LoRa devices and Wi-Fi or Ethernet. Also comes with ready-to-use code to drop everything into your MQTT server!](https://github.com/ezcGman/lora-gateway#:~:text=This repository gives you everything,you should pick down below)), y otro donde un ESP32 retransmite mensajes entre WiFi (MQTT) y LoRa ([MQTT Manager, Lora and Lora 'Poor Man' Gateway - Super Cheap : 11 Steps - Instructables](https://www.instructables.com/MQTT-Manager-Lora-and-Lora-Poor-Man-Gateway-Cheap-/#:~:text=Apartment)). En nuestro caso, la Pi cumple ese rol de puente central.
 
-Hasta ahora hemos logrado la comunicación **nodo -> pasarela -> servidor (TTS)**. Los datos llegan a The Things Stack, pero seguramente querrás utilizarlos en tu propia aplicación (por ejemplo, mostrar medidas en una base de datos, dashboard, enviarlos a un servicio web, etc.). Para esto, The Things Stack ofrece **integraciones** muy prácticas, principalmente:
+*Consejo:* Durante la puesta a punto, es útil probar con un solo nodo ESP32 y la Pi cercanos, enviando mensajes simples. Por ejemplo, enviar un string “hello” desde el ESP32 y verificar en la Pi (vía logs del script o ChirpStack) que se recibe correctamente. Luego implementar la integración con FastAPI y respuestas.
 
-- **Servidor MQTT integrado:** The Things Stack actúa como un broker MQTT al que te puedes suscribir para recibir los datos de los dispositivos en tiempo re ([MQTT Server | The Things Stack for LoRaWAN](https://www.thethingsindustries.com/docs/integrations/other-integrations/mqtt/#:~:text=The Things Stack exposes an,to uplinks or publish downlinks))9】. MQTT es un protocolo ligero de publicación/suscripción usado mucho en IoT. Usando MQTT, cualquier aplicación tuya puede recibir mensajes de los sensores (uplinks) o incluso enviar comandos de bajada (downlinks) publicando en ciertos topics.
-- **Integraciones HTTP/Webhooks:** Alternativamente, TTS permite configurar webhooks que envían una petición HTTP POST a tu servidor cada vez que llega un dato. También podrías usar la API HTTP/REST de TTS para consultar datos, aunque MQTT suele ser más sencillo para streaming.
+## Programación de los nodos ESP32 (MicroPython): WiFi AP, servidor API y comunicación LoRa-MQTT
 
-Nos centraremos en MQTT, por ser muy directo en despliegues locales.
+Cada nodo ESP32 debe realizar tres funciones clave: **crear un punto de acceso WiFi**, **atender solicitudes de dispositivos conectados** y **comunicarse por LoRa** con la Raspberry Pi usando MQTT como protocolo lógico. A continuación detallamos cómo lograr cada parte en MicroPython.
 
-**Usando MQTT para obtener los datos:**
+### Configuración del WiFi Access Point en MicroPython
 
-La instancia The Things Stack que instalamos ya expone un broker MQTT en el puerto 1883 (lo mapeamos en Docker). Vamos a suscribirnos a los mensajes:
+Al iniciar, el ESP32 se configura en modo **AP** (access point) para que otros dispositivos puedan conectarse a él directamente vía WiFi sin necesitar router ([MicroPython: ESP32/ESP8266 Access Point (AP) | Random Nerd Tutorials](https://randomnerdtutorials.com/micropython-esp32-esp8266-access-point-ap/#:~:text=Learn how to set your,Fi without a wireless router)). En MicroPython se utiliza el módulo `network`:
 
-1. **Crear credenciales MQTT (API Key):** En la consola de TTS, ve a tu aplicación y en la pestaña *Integrations > MQTT* encontrarás la información para conect ([MQTT Server | The Things Stack for LoRaWAN](https://www.thethingsindustries.com/docs/integrations/other-integrations/mqtt/#:~:text=Creating an API Key))6】. Por defecto en TTS open source, el **servidor MQTT** es la misma dirección de tu instalación (ejemplo: `192.168.1.100` puerto `1883`). El **usuario** de MQTT será el ID de la aplicación. Necesitarás generar una **API Key** para autenticar. En esa página, haz clic en "Generate new API key" y selecciona permisos de al menos `Read` en dispositivos y aplicaciones (en Community Edition suele generar una con todos los permisos por simplicida ([MQTT Server | The Things Stack for LoRaWAN](https://www.thethingsindustries.com/docs/integrations/other-integrations/mqtt/#:~:text=Image%3A MQTT connection information))3】. Copia el API Key generado (un string largo) y guárdalo.
+```python
+import network
+ap = network.WLAN(network.AP_IF)       # interfaz WiFi en modo AP
+ap.active(True)
+ap.config(essid="LoRaNode1", password="miclave123")  # SSID y clave WPA2
+```
 
-2. **Conectarse con un cliente MQTT:** Puedes usar cualquier cliente. Por ejemplo, desde la Raspberry Pi misma (o tu PC) instalar **Mosquitto** cliente:
+Este código activa el AP con el SSID “LoRaNode1” y la contraseña proporcionada ([MicroPython: ESP32/ESP8266 Access Point (AP) | Random Nerd Tutorials](https://randomnerdtutorials.com/micropython-esp32-esp8266-access-point-ap/#:~:text=ap %3D network,password%3Dpassword)). Podemos configurar otros parámetros opcionales, como la dirección IP del AP (por defecto suele ser 192.168.4.1) y el canal WiFi. Tras esto, cualquier smartphone u ordenador podrá ver la red “LoRaNode1” y conectarse. El ESP32 puede aceptar múltiples clientes (por lo general hasta 4 o 5 clientes simultáneos es manejable).
 
-   - En Raspberry Pi: `sudo apt-get install -y mosquitto-clients`. Esto proporciona el comando `mosquitto_sub` y `mosquitto_pub`.
+**Servidor HTTP en el ESP32:** Para que los dispositivos puedan consultar la API, el nodo ESP32 hará de proxy local. Podemos implementar un pequeño **servidor web** en MicroPython que escuche peticiones HTTP entrantes. Usando el módulo `socket`, podemos hacer algo como:
 
-   - Para probar, suscríbete a todos los tópicos de la aplicación:
+```python
+import socket
+addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]  # atender puerto 80 (HTTP)
+s = socket.socket()
+s.bind(addr)
+s.listen(5)
+print("Servidor HTTP escuchando en puerto 80")
+while True:
+    conn, client_addr = s.accept()
+    print("Conexion desde", client_addr)
+    request = conn.recv(1024)  # leer la petición (máx 1 KB)
+    # Parsear la primera línea de la petición
+    request_line = request.decode().split('\r\n')[0]
+    print("Peticion:", request_line)
+    # Ejemplo simple: asumir GET /dato
+    if "GET /dato" in request_line:
+        # Aquí en lugar de generar respuesta local, prepararemos mensaje LoRa/MQTT...
+        pass
+    # Enviar respuesta HTTP básica:
+    response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK"
+    conn.send(response.encode())
+    conn.close()
+```
 
-     ```bash
-     mosquitto_sub -h 127.0.0.1 -p 1883 -u "<AppID>" -P "<API_KEY>" -t "#" -v
-     ```
+Este es un esqueleto muy básico. En producción, querríamos extraer quizás la ruta solicitada (`/dato` en el ejemplo) y cualquier parámetro. También podríamos escuchar en otro puerto (por ejemplo 8000, igual que FastAPI, para transparencia, pero los dispositivos esperarían usar 80 a menos que les indiquemos puerto).
 
-     Donde `<AppID>` es el ID de tu aplicación en TTS, y `<API_KEY>` la clave generada. `-t "#"` indica suscripción a *todos los topics*. `-v` hace que muestre tanto el tópico como el mensaje.
+En este bucle, el ESP32 acepta conexiones entrantes, lee la petición HTTP y puede devolver una respuesta inmediata. **Sin embargo**, en nuestro caso la respuesta no se genera en el ESP32 sino que vendrá de la Raspberry Pi. Por tanto, al recibir la solicitud, el nodo debe **esperar la respuesta** de la Pi antes de responder al cliente. Esto implica que manejaremos la conexión en dos fases: recepción de la solicitud, y suspensión de la respuesta hasta obtener datos de la Pi.
 
-   - Si todo va bien, verás aparecer mensajes cada vez que llega un uplink. El tópico tendrá una forma parecida a:
-      `v3/<AppID>@<tenant>/devices/<DeviceID>/up` (en la edición open source sin multi-tenant, probablemente sea `v3//devices//up ([MQTT Server | The Things Stack for LoRaWAN](https://www.thethingsindustries.com/docs/integrations/other-integrations/mqtt/#:~:text=For example%2C for an application,ID for The Things Network))9】. El payload del mensaje es un JSON con toda la información del uplink: datos en base64, puertas de enlace que lo oyeron, potencias, etc. Por ejemplo:
+Una estrategia es enviar al cliente alguna confirmación de recepción y usar *long polling* o websockets; pero para simplicidad, podemos bloquear brevemente mientras consultamos a la Pi y luego responder HTTP. Dado que LoRa es lento (latencias del orden de cientos de ms a segundos), es aceptable un pequeño retraso.
 
-     ```json
-     {
-       "end_device_ids": { ... },
-       "uplink_message": {
-         "frm_payload": "ABCD", 
-         "decoded_payload": { ... },
-         "rx_metadata": [ {... gateway_ids... rssi... snr...} ],
-         ...
-       }
-     }
-     ```
+### Comunicación LoRa desde MicroPython (MQTT hacia la Pi)
 
-     Lo importante es `frm_payload`, que es el payload en base64. Ese "ABCD" por ejemplo corresponde a los bytes enviados. Puedes decodificarlo o, mejor, usar un **payload formatter** en TTS para que ya te envíe `decoded_payload` con valores numéricos. En la consola TTS, en tu aplicación > Payload Formatters, puedes añadir una función decoder (en JavaScript) que decodifique los bytes. Por ejemplo, si el payload son 2 bytes que representan un número, un decoder JS podría convertirlo a un entero.
+Para retransmitir la consulta vía LoRa, el ESP32 en MicroPython utilizará el módulo de radio conectado (SX127x). Como MicroPython no incluye soporte LoRa nativo, incorporamos un **driver**. Por ejemplo, el proyecto *uPyLoRa* de LeMariva proporciona `sx127x.py` y clases auxiliares ([Tutorial: ESP32 running MicroPython sends data over LoRaWAN - LeMaRiva Tech](https://lemariva.com/blog/2020/02/tutorial-micropython-esp32-sends-data-over-lorawan#:~:text=In this case%2C the SX127x,In the example case)). Con ese driver, podemos inicializar el transceptor:
 
-   - Tu aplicación puede en lugar de mosquitto_sub, usar una librería MQTT en el lenguaje que prefieras (Python paho-mqtt, Node.js mqtt, etc.) y suscribirse al mismo topic. Con eso, integras los datos en tiempo real. Por ejemplo, podrías tener un script Python que cada vez que llega un mensaje lo inserta en una base de datos o lo muestra en pantalla.
+```python
+from sx127x import SX127x
+from controller_esp32 import ESP32Controller  # controla pines del ESP32 para LoRa
 
-3. **Integración HTTP (webhook) – alternativa:** Si no quieres mantener una conexión MQTT abierta, puedes configurar en TTS un **Webhook** (Integrations > Webhooks) que envíe un POST a tu servidor. Por ejemplo, si tienes un server local en Node-RED o en una aplicación web, configuras la URL y TTS enviará el JSON allí. TTS incluso tiene plantillas para integraciones con ThingsBoard, Datacake, InfluxDB, etc., pero en un comienzo MQTT es más universal.
+# Inicializar controlador y transceiver LoRa
+controller = ESP32Controller()
+lora = controller.add_transceiver(SX127x(name='LoRa'),
+                                  pin_id_ss=5,       # pin CS del SX127x
+                                  pin_id_RxDone=26)  # pin DIO0 (RxDone) del SX127x
+# Configurar parámetros LoRa
+lora.set_frequency(868000000)  # por ejemplo 868 MHz
+lora.set_spreading_factor(7)
+lora.set_bandwidth(125000)
+```
 
-**Enviar comandos a los nodos (downlink):** MQTT también permite publicar mensajes hacia los dispositivos (por ejemplo para encender un LED, etc.). El topic para downlink sería algo como `v3/<AppID>/devices/<DeviceID>/down/push` con un JSON que incluya el payload que quieres enviar en base64 y el fport. Esto está documentado en The Things Stack docs. Ten en cuenta que para que el nodo reciba downlinks, debe escuchar después de sus uplinks (ventanas RX1/RX2). Nuestra implementación ABP básica envía uplinks unconfirmed, y podría recibir downlinks (por ejemplo, podrías enviar un mensaje al nodo para cambiar un parámetro). Implementar la recepción en MicroPython requeriría leer interrupciones DIO1/DIO2 y decodificar, lo cual es avanzado. Para propósitos iniciales, nos centramos en los uplinks (sensor -> servidor).
+*(Las configuraciones de pines dependen del wiring entre ESP32 y módulo LoRa; en este ejemplo CS=GPIO5, DIO0=GPIO26).*
 
-Resumiendo, con MQTT tienes una **integración en tiempo real** muy cómoda: tu servidor local de TTS hace de broker y tu aplicación se suscribe para obtener los dat ([MQTT Server | The Things Stack for LoRaWAN](https://www.thethingsindustries.com/docs/integrations/other-integrations/mqtt/#:~:text=The Things Stack exposes an,to uplinks or publish))4】. No necesitas terceros, todo ocurre dentro de tu red local, lo cual además es bueno por privacidad y latencia mínima.
+Una vez inicializado, el objeto `lora` nos permite enviar datos. Muchos drivers definen métodos como `lora.println()` para mandar texto directamente ([[IoT\] LoRa with MicroPython on the ESP8266 and ESP32 | by German Gensetskiy | Go Wombat | Medium](https://medium.com/gowombat/iot-lora-with-micropython-on-the-esp8266-and-esp32-59d1a4b507ca#:~:text=import time)) ([[IoT\] LoRa with MicroPython on the ESP8266 and ESP32 | by German Gensetskiy | Go Wombat | Medium](https://medium.com/gowombat/iot-lora-with-micropython-on-the-esp8266-and-esp32-59d1a4b507ca#:~:text=counter %3D 0 print()). Por ejemplo:
 
-## Seguridad básica recomendada 🔒
+```python
+mensaje = "NODO1:GET /dato"
+lora.println(mensaje)
+```
 
-Al montar cualquier sistema IoT, especialmente uno conectado a una red, es importante considerar la seguridad. A continuación, algunas prácticas básicas que deberías aplicar en este proyecto:
+Este envío LoRa se hará de forma asíncrona (no hay garantía de entrega, a menos que implementemos acuses). Podemos incluir en el mensaje algún identificador de nodo y quizás un ID de solicitud. En el ejemplo, enviamos `"NODO1:GET /dato"`, lo cual la Pi deberá interpretar como *“el nodo1 solicita GET /dato”*. Es aconsejable enviar en formato JSON compacto o una trama delimitada para separar campos (por ejemplo: `<id_nodo>|<id_req>|<payload>`). Recordemos que **LoRa tiene límite de payload** (unos ~240 bytes máximo en modo explícito, menos si SF alto), así que mantener los mensajes cortos es crucial.
 
-- **Cambiar credenciales por defecto:** Ya lo mencionamos, pero vale reiterar: no dejes la contraseña por defecto del usuario **pi** en la Raspberry (cámbiala con `passwd`). Asimismo, cambia la contraseña del usuario **admin** de The Things St ([the-things-stack-docker/README.md at master · xoseperez/the-things-stack-docker · GitHub](https://github.com/xoseperez/the-things-stack-docker/blob/master/README.md#:~:text=Point your browser to the,to log in as administrator))07】. Estas contraseñas por defecto son bien conocidas, y cualquiera en la red podría acceder si las detecta.
-- **Mantener el sistema actualizado:** Ejecuta `sudo apt update && sudo apt upgrade` periódicamente en la Raspberry Pi para aplicar parches de seguridad del sistema operativo. Igualmente, mantener Docker y las imágenes actualizadas (puedes recrear los contenedores con versiones nuevas de TTS cuando salgan).
-- **Red cerrada o VPN:** Si tu pasarela/servidor TTS no necesita ser accedido desde fuera de tu red local, mantenlo en una red local cerrada (por ejemplo, solo accesible dentro de tu WiFi doméstica). Evita exponer la interfaz de The Things Stack directamente a Internet si no es necesario. Si requieres acceso remoto, considera montar una VPN o túnel seguro.
-- **Cifrado de comunicación:** Ten en cuenta que el protocolo Semtech UDP que usamos entre gateway y servidor **no cifra el enlace**. Dado que aquí todo ocurre dentro de tu LAN, el riesgo es bajo. Pero en entornos críticos se preferiría usar LoRa Basics Station (LNS) con wss:// (TLS) para la pasarela, o al menos tunelar el tráfico UDP por VPN. En nuestro caso, la carga útil LoRaWAN ya viene cifrada a nivel de aplicación de extremo a extremo con AES-128, lo cual es una tranquilidad (solo el servidor y el dispositivo tienen las claves para descifrar los datos). Aún así, los metadatos (EUI, frecuencia, etc.) viajan sin cifrar en UDP.
-- **Seguridad MQTT:** Si vas a aprovechar MQTT, utiliza las autenticaciones. En TTS, el broker MQTT requiere usuario (AppID) y API Key, así que ya tienes una capa de autenticac ([MQTT Server | The Things Stack for LoRaWAN](https://www.thethingsindustries.com/docs/integrations/other-integrations/mqtt/#:~:text=Creating an API Key))66】. Aun así, por defecto la conexión MQTT aquí es TCP sin cifrar (puesto que es todo local). Podrías configurar MQTT con TLS si lo desearas, pero para LAN no es crítico.
-- **Firewalls:** Si tu Raspberry Pi está también conectada a Internet, podrías emplear `ufw` (uncomplicated firewall) para bloquear puertos no necesarios. Por ejemplo, podrías bloquear accesos externos al puerto 1885/8885 (console) si no deseas que nadie más entre, etc.
-- **Bluetooth y WiFi en nodos:** Si implementas provisión por Bluetooth o WiFi AP en los nodos, protégelo. Por ejemplo, si usas WiFi AP, ponle una contraseña al AP para que un vecino no se conecte inadvertidamente. Si usas BLE, quizá pide un PIN de emparejamiento simple.
-- **Claves LoRaWAN seguras:** Aunque en nuestro ejemplo las hemos escrito en el código (lo cual en entornos de producción no es ideal), asegúrate de no compartir las AppSKey/NwkSKey públicamente. Si reusas este proyecto, genera tus propias claves únicas por dispositivo desde TTS. Recuerda que la AppSKey cifra la carga útil de aplicación punto a pu ([LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/#:~:text=A typical LoRaWAN Network Server,has the following features))43】, por lo que ni siquiera un tercero que capture los datos (sin la AppSKey) podría leer el contenido. Mantener estas keys secretas garantiza la privacidad de los datos de sensores.
+El **protocolo MQTT sobre LoRa** en nuestro caso es ligero: podemos decidir que todos los mensajes de petición se publiquen en un tópico fijo (p.ej. `"peticiones"`) pero incluyan el identificador del nodo y la ruta. Alternativamente, cada nodo puede publicar en un tópico único (como `"nodo1/peticiones"`). Dado que los ESP32 no tienen un *broker* real, estamos simulando MQTT: en la práctica, el ESP32 envía por LoRa y la Pi, al recibir, hará un `mqtt.publish()` en Mosquitto en el tópico correspondiente.
 
-En resumen, **no dejes accesos abiertos con contraseñas por defecto**, segmenta la red si es posible (por ejemplo, podrías tener la Raspberry Pi en una subred para IoT separada de la red principal de PCs), y aprovecha las capas de seguridad que ya ofrece LoRaWAN (cifrado de las tramas). Para un entorno casero de pruebas, con estos cuidados mínimos estarás bastante seguro.
+Cuando la Pi procese y tenga la respuesta, hará el camino inverso: emitirá un mensaje LoRa dirigido al nodo (puede ser *broadcast* pero incluyendo ID del nodo destino en la payload). El ESP32 deberá entonces **escuchar** su radio LoRa para mensajes entrantes. Usando el driver, se puede checar periódicamente si hay paquetes recibidos, o configurar una interrupción en DIO0. Un pseudocódigo simple con polling:
 
-## Automatización mediante scripts 📑
+```python
+# En algún lugar del loop principal del ESP32:
+if lora.received_packet():
+    payload = lora.read_payload()
+    print("LoRa recibido:", payload)
+    # Parsear si es una respuesta para este nodo
+    # Suponiendo formato "NODO1_RESP:{...}"
+    text = payload.decode('utf-8')
+    if text.startswith("NODO1_RESP:"):
+        contenido = text.split(":", 1)[1]
+        respuesta_api = contenido  # aquí estaría el resultado real de FastAPI
+        # Enviar respuesta HTTP al cliente:
+        http_response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + respuesta_api
+        conn.send(http_response.encode())
+        conn.close()
+```
 
-A medida que construyas este proyecto, posiblemente querrás **automatizar** algunos pasos para no tener que repetir comandos manualmente en cada despliegue. Algunas ideas de scripts útiles:
+En este ejemplo, `lora.received_packet()` sería un método que indica si llegó un paquete (esto depende del driver específico). Luego, `lora.read_payload()` lee los bytes recibidos. Se decodifica a texto y si comienza con el identificador de respuesta del nodo (`"NODO1_RESP:"`), obtenemos el contenido JSON de la respuesta. Finalmente, construimos la respuesta HTTP con ese contenido y la enviamos por el socket abierto con el dispositivo. Así, se completa el ciclo petición-respuesta.
 
-- **Script de instalación en Raspberry Pi:** Podrías crear un script bash que realice la instalación completa en una Pi nueva. Por ejemplo, que actualice el sistema, instale Docker, Docker Compose, clone el repo de RAK e instale el gateway, copie el archivo docker-compose.yml y levante TTS. Muchas de esas tareas las hicimos manualmente, pero es perfectamente posible escribir un bash que las ejecute secuencialmente. Incluso hay usuarios que han compartido guiones para instalar TTN Stack en RPi automáticam ([GitHub - RAKWireless/rak_common_for_gateway](https://github.com/RAKWireless/rak_common_for_gateway#:~:text=step1 %3A Download and install,latest Raspberry Pi OS Lite)) ([GitHub - RAKWireless/rak_common_for_gateway](https://github.com/RAKWireless/rak_common_for_gateway#:~:text=Please enter 1,the model))307】.
-- **Scripts para configurar TTS por CLI:** The Things Stack incluye una herramienta CLI (`ttn-lw-cli`) que se puede usar dentro del contenedor TTS. Con ella podrías automatizar la creación de gateways y dispositivos en lote. Por ejemplo, un script que registre 10 dispositivos ABP con sus DevAddr consecutivos. En la documentación oficial hay ejemplos de uso del CLI. Nuestro contenedor incluso permite `docker exec stack ttn-lw-cli  ([the-things-stack-docker/README.md at master · xoseperez/the-things-stack-docker · GitHub](https://github.com/xoseperez/the-things-stack-docker/blob/master/README.md#:~:text=CLI Auto Login))463】. Si vas a desplegar muchos nodos, esto ahorra hacerlo a mano en la consola web.
-- **Script para decodificar logs:** Mientras pruebas, podrías tener un pequeño script Python en la Pi que suscrito al MQTT imprima solo los valores decodificados interesantes, en vez de todo el JSON. Esto es útil para debugging rápido.
-- **Script de arranque:** Si quieres que al encender la Raspberry Pi se levante todo automáticamente (Docker ya se configuró para iniciar los contenedores a menos que estén parados con `unless-stopped` en docker-compose), pero quizás quieras que los logs se guarden, etc. Podrías usar un pequeño script en `/etc/rc.local` o un servicio systemd personalizado que verifique que Docker está corriendo y tu stack levantado.
-- **Scripts en los nodos para provisión:** En MicroPython, podrías escribir un modo de configuración (como discutimos) que se active con cierto evento. Eso sería un script embebido en el firmware del nodo para facilitar reconfiguración sin tocar código.
+Cabe destacar que hay consideraciones de sincronización: el código del ESP32 debe probablemente esperar la respuesta tras enviar una petición. Se puede implementar esperando activa (polling LoRa) durante unos segundos. También es posible que se necesite reenviar la petición si no hay respuesta (manejo de reintentos) – esto aumenta la complejidad, pero es recomendable para confiabilidad.
 
-Por ahora, con las instrucciones dadas, **no es necesario un script complejo**: ya has lanzado todo y debería reiniciarse solo tras un reboot (la pasarela configura en crontab o systemd el forwarder, y Docker Compose con `restart: unless-stopped` hará que TTS suba solo). Pero tener estos pasos documentados te servirá en el futuro.
+### Uso de MQTT y manejo en los nodos
 
-## Conclusión y siguientes pasos
+Aunque en los nodos no podemos correr un broker MQTT completo (ni sería útil), **sí podemos aplicar la lógica MQTT**: es decir, definimos “topics” lógicos y mensajes en formato JSON. Por ejemplo, una petición podría ser:
 
-Hemos construido un sistema LoRaWAN casero: una Raspberry Pi 3 con un HAT RAK2245 actuando de gateway, corriendo The Things Stack en Docker para gestionar la red, y unos nodos ESP32 con MicroPython enviando datos. Esto demuestra el concepto de una red IoT larga distancia privada. A partir de aquí podrías:
+```json
+{
+  "topic": "consulta/temp",
+  "node": "NODO1",
+  "payload": null
+}
+```
 
-- Añadir más sensores (p. ej. sensores de temperatura, humedad, movimiento) a tus nodos ESP32 y enviar esos datos.
-- Crear una interfaz web (dashboard) para visualizar los datos en tiempo real usando las integraciones (por ejemplo, suscribiendo con Node-RED o Grafana).
-- Explorar el envío de comandos a los nodos (downlink) quizás para encender un LED o controlar algo remotamente.
-- Probar el modo OTAA en los nodos para ver cómo realizar el join (puede ser un reto divertido implementar el join in MicroPython, o alternar y usar Arduino C++ solo para comparar).
-- Montar una caja y antena exterior para tu gateway si quieres mayor cobertura – recuerda que LoRa puede alcanzar varios km con línea vista. Con una antena exterior podrías dar cobertura a tus alrededores.
-- Experimentar con ajustes de LoRa: SF (Spreading Factor), potencias, etc., para ver cómo afectan el alcance y la velocidad de datos.
+y la respuesta:
 
-¡Las posibilidades son muchas! Lo importante es que ya tienes la infraestructura y el conocimiento básico para manejarlas.
+```json
+{
+  "topic": "respuesta/temp",
+  "node": "NODO1",
+  "payload": {"temperatura": 23.5}
+}
+```
 
-Antes de terminar, a continuación te dejamos algunos **enlaces a documentación oficial** y recursos que te serán útiles para ampliar o resolver dudas.
+Estos JSON podrían enviarse como strings por LoRa. Sin embargo, añadir tanto texto overhead puede sobrecargar los pocos bytes de LoRa. Una alternativa es usar un **protocolo compacto**: por ejemplo, asignar códigos numéricos a cada tipo de petición. En entornos IoT se suele utilizar **MQTT-SN (MQTT for Sensor Networks)**, que está diseñado para enlaces no TCP como LoRa. MQTT-SN usa mensajes binarios breves y permite que un *gateway* (la Pi) traduzca a MQTT normal. No obstante, implementar MQTT-SN en MicroPython podría ser complejo.
 
-## Recursos y documentación externa útil 📚
+Dado el alcance del proyecto, podemos *simplificar*: el ESP32 “publica” una petición enviando un mensaje LoRa, y la Pi la recibe y la pone en el broker. Similarmente, la Pi “publica” una respuesta enviando LoRa al nodo. El ESP32 no necesita tener una librería MQTT, solo necesita escuchar su respuesta. En esencia, **el nodo actúa como un cliente MQTT implícito**, donde la Pi hace el trabajo pesado de broker.
 
-- **Documentación oficial de The Things Stack (v3)** – Guía completa de The Things Stack, incluyendo instalación, uso de la consola, CLI, integraciones, etc. (en inglés): . En particular, la sección de Integraciones MQTT de The Things St ([MQTT Server | The Things Stack for LoRaWAN](https://www.thethingsindustries.com/docs/integrations/other-integrations/mqtt/#:~:text=The Things Stack exposes an,to uplinks or publish downlinks)) ([MQTT Server | The Things Stack for LoRaWAN](https://www.thethingsindustries.com/docs/integrations/other-integrations/mqtt/#:~:text=Creating an API Key))-L66】. También el artículo *"Deploy The Things Stack in your local network"* (The Things Network blog) donde Hylke Visser muestra cómo instalarlo en una Raspber ([Deploy The Things Stack  in your local network](https://www.thethingsnetwork.org/article/deploy-the-things-stack-in-your-local-network#:~:text=The Things Stack now offers,such as the Raspberry Pi))-L26】.
-- **Centro de documentación de RAKwireless** – Manuales de los módulos LoRa. Por ejemplo, la *Guía de inicio rápido del RAK2245* (en inglés) detalla la instalación del software en Raspber ([Meet the Device That LoRa® Developers Can't Resist Having: RAK2245 - IoT Made Easy](https://www.rakwireless.com/en-us/products/lpwan-gateways-and-concentrators/rak2245-pihat#:~:text=LPWAN Gateway Concentrator Module The,as the Raspberry Pi 3B))-L95】 y el uso de gateway-c ([Configuring Your Gateway | The Things Network](https://www.thethingsnetwork.org/docs/gateways/rak2245/configuring-gateway/#:~:text=You can choose one of,Servers here%3A TTN or ChirpStack))L121】: .
-- **MicroPython (ESP32) – Documentación oficial** – Tutorial oficial para iniciarse con MicroPython en ESP32 (en ingl ([1. Getting started with MicroPython on the ESP32 — MicroPython latest documentation](https://docs.micropython.org/en/latest/esp32/tutorial/intro.html#:~:text=1)) ([1. Getting started with MicroPython on the ESP32 — MicroPython latest documentation](https://docs.micropython.org/en/latest/esp32/tutorial/intro.html#:~:text=The first thing you need,particular board on this page))L112】. Explica cómo instalar firmware, usar el REPL, manejar WiFi, GPIO, etc. Útil para comprender más allá de LoRa.
-- **uLoRa – Proyecto LoRaWAN MicroPython** – Repositorio de la librería uLoRa utilizada en este proye ([GitHub - fantasticdonkey/uLoRa: LoRa / LoRaWAN + TTN for MicroPython (ESP32)](https://github.com/fantasticdonkey/uLoRa#:~:text=Objecive))L261】 (GitHub: *LoRaWAN + TTN for MicroPython*). Incluye ejemplos y notas sobre sus capacidades (por ejemplo, indica que solo hace uplinks no confirmados con ABP, que es justo nuestro caso de uso básico).
-- **The Things Network – Conceptos LoRaWAN** – La documentación comunitaria de TTN tiene explicaciones de la arquitectura Lo ([LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/#:~:text=End devices communicate with nearby,is known as message deduplication))-L77】, conceptos de dispositivos, gateways, etc., en un lenguaje senci ([LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/#:~:text=Each gateway is registered ,4 GHz radio links))-L97】. Ideal para entender términos como DevAddr, AppKey, ADR, SF, etc.
-- **Mosquitto MQTT** – Página oficial del proyecto Eclipse Mosquitto, con descargas y documentación de los clientes MQTT  ([Data API (MQTT) | The Things Network](https://www.thethingsnetwork.org/docs/applications/mqtt/#:~:text=,client with a nice GUI))-L77】. Útil si quieres saber más de cómo usar mosquitto_sub o montar tu propio broker (aunque en este proyecto aprovechamos el integrado en TTS).
-- **Seguridad LoRaWAN** – Documento *The Things Network Security* (si quieres profundizar en cómo LoRaWAN garantiza la seguridad de las tramas, con las dos capas de cifrado NwkSKey/AppSK ([LoRaWAN Architecture | The Things Network](https://www.thethingsnetwork.org/docs/lorawan/architecture/#:~:text=A typical LoRaWAN Network Server,has the following features))L143】.
-- **Foros de la comunidad** – Si encuentras obstáculos, los foros de The Things Network y RAKWireless son excelentes lugares para buscar soluciones:
-  - Foro TTN: preguntas y respuestas de usuarios sobre gateways DIY, problemas de conexión, etc. (por ejemplo *“How to install TTN Stack v3 on RPi?”*: experiencias de otros usu ([How to install TTN stack V3 on RPI? - The Things Network](https://www.thethingsnetwork.org/forum/t/how-to-install-ttn-stack-v3-on-rpi/27135#:~:text=How to install TTN stack,instruction on their github%2C))-L13】).
-  - Foro RAKWireless: dedicado a hardware RAK; útil si tienes algún inconveniente específico con el RAK2245 o su software (por ejemplo, hilos sobre RAK2245 no conectando y soluciones).
-- **Código fuente de ejemplo** – Nuestro código MicroPython de ejemplo se basó en la adaptación de TinyLoRa. Adafruit tiene un tutorial CircuitPython LoRaWAN con TinyLoRa (que es similar a MicroPy ([GitHub - fantasticdonkey/uLoRa: LoRa / LoRaWAN + TTN for MicroPython (ESP32)](https://github.com/fantasticdonkey/uLoRa#:~:text=This is an experimental port,TTN))L252】 y explica el procedimiento de registro en TTN, formateo de payload, etc. (aunque usando su hardware Feather M0). Puede servir para comparar enfoques.
+Por claridad, supongamos que manejamos dos tópicos lógicos por nodo: `"nodox/peticiones"` y `"nodox/respuestas"`. Entonces:
+
+- Cuando el ESP32 recibe una petición HTTP de un cliente, formatea el contenido (p.ej. `"GET /dato"`) y lo envía por LoRa precedido por `"nodox/peticiones:"`. La Pi al ver esto publica el contenido en el tópico `nodox/peticiones` de Mosquitto.
+- La FastAPI (o un handler) está suscrita a `nodox/peticiones`. Al llegar, procesa y publica la respuesta en `nodox/respuestas`.
+- La Pi envía por LoRa el mensaje con prefijo `"nodox/respuestas:"` seguido del resultado. El ESP32 al recibirlo identifica que es del tópico de respuestas y entonces responde al cliente HTTP.
+
+Esta separación por tópicos permite que múltiples nodos operen sin interferirse (un nodo solo procesa mensajes con su nombre). **¿Y si dos nodos transmiten a la vez?** En LoRa, eso causaría colisión y pérdida de paquetes. No hay colisión avoidance fácilmente (no es como WiFi). Para mitigar, podemos configurar que cada nodo transmita con un pequeño desfase aleatorio y que las peticiones de usuarios sean poco frecuentes. Si el canal se congestiona, quizás convenga usar diferentes frecuencias o SF por nodo (por ejemplo, nodo1 en 868.1MHz SF7, nodo2 en 868.3MHz SF7, etc.). Pero eso requeriría que la Pi tuviera múltiples transceptores o que cambie de canal dinámicamente (no trivial). En redes LoRaWAN reales, hasta 8 canales se escuchan simultáneamente mediante hardware específico (SX1301). En nuestra solución, mantener pocos nodos y tráfico bajo ayudará.
+
+### Ejemplos de código y recursos útiles
+
+Para apoyar el desarrollo, se listan algunos **recursos y ejemplos de código** relevantes:
+
+- **Driver LoRa MicroPython:** Repositorio `uPyLoRaWAN` de Marconi (lemariva) ([[IoT\] LoRa with MicroPython on the ESP8266 and ESP32 | by German Gensetskiy | Go Wombat | Medium](https://medium.com/gowombat/iot-lora-with-micropython-on-the-esp8266-and-esp32-59d1a4b507ca#:~:text=Next step was in understanding,version for ESP32 named uPyLora)) que incluye un driver SX127x optimizado para ESP32. Confirmó envíos exitosos en ESP32 ([[IoT\] LoRa with MicroPython on the ESP8266 and ESP32 | by German Gensetskiy | Go Wombat | Medium](https://medium.com/gowombat/iot-lora-with-micropython-on-the-esp8266-and-esp32-59d1a4b507ca#:~:text=counter %2B%3D 1 time)). Este código puede ser adaptado para nuestra necesidad (ignorando la capa LoRaWAN si no se usa).
+- **Tutorial MicroPython LoRaWAN:** LeMariva publicó un tutorial de cómo conectar un ESP32 (MicroPython) a The Things Network usando ABP ([Tutorial: ESP32 running MicroPython sends data over LoRaWAN - LeMaRiva Tech](https://lemariva.com/blog/2020/02/tutorial-micropython-esp32-sends-data-over-lorawan#:~:text=the original project to clean,1)). Ese ejemplo muestra cómo preparar `DEVADDR`, `NwkSKey`, `AppSKey` en MicroPython para enviar datos LoRaWAN uplink. Nuestro caso es similar si usamos ChirpStack (solo que apuntando al network server local en vez de TTN).
+- **Ejemplo de Access Point y sockets:** Random Nerd Tutorials tiene ejemplos de configurar el ESP32 como AP ([MicroPython: ESP32/ESP8266 Access Point (AP) | Random Nerd Tutorials](https://randomnerdtutorials.com/micropython-esp32-esp8266-access-point-ap/#:~:text=Learn how to set your,Fi without a wireless router)) y de crear servidores web en MicroPython ([ESP32/ESP8266 MicroPython Web Server | Random Nerd Tutorials](https://randomnerdtutorials.com/esp32-esp8266-micropython-web-server/#:~:text=s %3D socket,listen(5)) ([ESP32/ESP8266 MicroPython Web Server | Random Nerd Tutorials](https://randomnerdtutorials.com/esp32-esp8266-micropython-web-server/#:~:text=led,n') conn.sendall(response) conn.close)). Esos ejemplos fueron la base para nuestro servidor HTTP en el nodo.
+- **Proyecto LoRa MQTT Gateway (Arduino):** Instructable “MQTT Manager, LoRa and LoRa ‘Poor Man’ Gateway” – implementa una solución con dos ESP32 donde uno hace de gateway WiFi-LoRa y otro controla un relé en un garage ([MQTT Manager, Lora and Lora 'Poor Man' Gateway - Super Cheap : 11 Steps - Instructables](https://www.instructables.com/MQTT-Manager-Lora-and-Lora-Poor-Man-Gateway-Cheap-/#:~:text=Then%2C I came up with,mains when not at home)) ([MQTT Manager, Lora and Lora 'Poor Man' Gateway - Super Cheap : 11 Steps - Instructables](https://www.instructables.com/MQTT-Manager-Lora-and-Lora-Poor-Man-Gateway-Cheap-/#:~:text=Apartment)). Aunque usa Arduino C++, la arquitectura es muy parecida a la nuestra y puede servir de inspiración. La figura 1 presentada proviene de allí adaptada.
+- **Repositorio LoRa-to-MQTT (ESP32 + EByte):** Proyecto en GitHub de ezcGman que construye un gateway LoRa <-> MQTT con ESP32 y módulos E32/E220 ([GitHub - ezcGman/lora-gateway: Gateway to create a bridge between your LoRa devices and Wi-Fi or Ethernet. Also comes with ready-to-use code to drop everything into your MQTT server!](https://github.com/ezcGman/lora-gateway#:~:text=This repository gives you everything,you should pick down below)). Útil para entender la encapsulación de mensajes y el manejo de tópicos.
+- **ChirpStack & MQTT:** Documentación de ChirpStack sobre integraciones MQTT. También en foros de RAK se recomienda instalar un Network Server local para almacenar datos en la Pi y usar MQTT local en vez de TTN ([Storing Data locally in Raspberry-Pi with Lorawan Gateway - WisGate Connect RAK7391 - RAKwireless Forum](https://forum.rakwireless.com/t/storing-data-locally-in-raspberry-pi-with-lorawan-gateway/9729#:~:text=The simplest one ,MQTT instead of TTN’s MQTT)). Esto confirma la viabilidad de nuestra aproximación con un servidor LoRaWAN privado.
+
+## Posibles retos técnicos y cómo mitigarlos
+
+Implementar esta infraestructura conlleva varios desafíos. A continuación, enumeramos algunos de los principales retos técnicos junto con estrategias para mitigarlos:
+
+- **Latencia y bajo ancho de banda de LoRa:** La comunicación LoRa es de baja velocidad (unos pocos kilobits por segundo en el mejor caso) y alta latencia (cada paquete puede tardar cientos de milisegundos en transmitirse, especialmente con spreading factors altos). Esto significa que las consultas API tendrán mayor retraso que en WiFi o Ethernet. **Mitigación:** Usar la **velocidad LoRa más alta posible** que cubra la distancia requerida. Esto implica elegir **Spreading Factor bajo (SF7)**, ancho de banda mayor (125 kHz o más) y coding rate bajo, siempre que el enlace siga siendo fiable. Además, enviar **paquetes pequeños** – limitar la información solicitada a lo esencial. En la aplicación, informar al usuario que las respuestas pueden tardar ~1-2 segundos, para manejar sus expectativas. Si es crítico, considerar implementar confirmaciones a nivel de aplicación (ACK) y reintentos en caso de pérdida, lo que añade algo de latencia pero asegura entrega.
+- **Tamaño de mensaje limitado en LoRa:** Como se mencionó, LoRa (y especialmente LoRaWAN) limita la carga útil. Por ejemplo, en LoRaWAN a SF12 solo ~51 bytes por paquete ([Use Lora Shield and RPi to Build a LoRaWAN Gateway : 10 Steps (with Pictures) - Instructables](https://www.instructables.com/Use-Lora-Shield-and-RPi-to-Build-a-LoRaWAN-Gateway/#:~:text=,and will never be)). **Mitigación:** Diseñar la API de forma que las respuestas sean **concisas**. Evitar enviar datos voluminosos (imágenes, largas cadenas) a través de LoRa. Si se requiere transferir más datos de lo que cabe en un paquete, implementaremos una estrategia de fragmentación: dividir la respuesta en varios paquetes y reensamblarlos en el nodo (esto complica el protocolo y se debe hacer con cautela debido a mayor riesgo de pérdida). También se puede comprimir JSON o usar formatos binarios compactos. En casos extremos, habría que asumir la imposibilidad de ciertas operaciones por LoRa y limitarlas.
+- **Colisiones y concurrencia en LoRa:** A diferencia de WiFi, LoRa no tiene un mecanismo robusto de acceder al medio (no hay carrier sense). Si dos nodos transmiten simultáneamente en la misma frecuencia/SF, habrá colisión y pérdida. **Mitigación:** Coordinar a nivel de aplicación para evitar transmisiones simultáneas. Por ejemplo, si los nodos están relativamente cerca entre sí, podrían escuchar antes de transmitir (LoRa no detecta portadora fácilmente, pero se podría medir RSSI). Más simple: asegurarse de que el tráfico es bajo (p. ej., que los usuarios no hagan spam de requests). Si hay muchos nodos, se podría asignar **ventanas de tiempo** o intervalos aleatorios a cada uno para reducir probabilidad de choque. Otra opción es usar diferentes **spreading factors** por nodo, ya que LoRa ortogonaliza diferentes SF (un nodo en SF7 y otro en SF8 pueden transmitir simultáneamente con menos interferencia). Esto requiere que la gateway Pi escuche múltiples SF, lo cual con un transceptor normal no es trivial (normalmente habría que fijarlo en uno, a menos que se implemente escucha continua y detección multi-SF muy avanzada). En redes sencillas, probablemente unos pocos nodos y tráfico bajo no presenten muchas colisiones.
+- **Limitaciones de MicroPython en ESP32:** MicroPython es más lento que C/C++ nativo, y tiene limitaciones de memoria (unos ~100k RAM libres típicamente en ESP32). Ejecutar un AP WiFi, un bucle de servidor web y manejar LoRa simultáneamente es intensivo. **Mitigación:** Escribir código eficiente, evitando copias de datos grandes. Reutilizar buffers (por ejemplo, usar el mismo `bytearray` para recv de socket). Deshabilitar características innecesarias (p. ej., si no usamos debugging via USB, podemos desactivar prints, etc.). Si MicroPython no rinde, contemplar usar código C para partes críticas (MicroPython permite código nativo via `machine.CodeType` o incluso escribir módulos en C). Sin embargo, probablemente MicroPython sí pueda manejar unas pocas peticiones por minuto. También se puede aprovechar `uasyncio` para manejar la espera de LoRa de forma asíncrona en vez de bloquear completamente el bucle (así el AP puede seguir aceptando nuevas conexiones en paralelo si llega otro cliente).
+- **Gestión de múltiples clientes en el nodo:** Si dos usuarios se conectan al mismo ESP32 AP y hacen consultas simultáneas, nuestro código de ejemplo (que es single-thread) atenderá de a uno. El segundo tendrá que esperar a que termine el primero. **Mitigación:** Utilizar **uasyncio** en MicroPython para manejar múltiples sockets concurrentemente sin bloquear, o al menos para permitir que el ESP32 escuche LoRa mientras espera una respuesta para el primer cliente. Dado que normalmente el volumen de usuarios por nodo será bajo, esto quizás no sea crítico. Otra solución es desplegar más nodos para distribuir la carga (aunque eso conlleva más colisiones potenciales en LoRa).
+- **Cobertura WiFi del nodo ESP32:** El ESP32 como AP tiene un alcance limitado (~20m en interiores). Si los usuarios están muy dispersos, puede que deban acercarse al nodo. **Mitigación:** Asegurar línea de vista o instalar una antena WiFi externa al ESP32 (algunos boards permiten soldar una antena o usar módulos con conector U.FL). También se podría poner el ESP32 en modo repetidor, pero complica. Este reto es más de diseño físico: colocar los nodos estratégicamente donde se requiera acceso.
+- **Regulaciones y duty cycle:** En bandas libres (868 MHz en Europa), existen restricciones de tiempo de transmisión (duty cycle ~1% típicamente). Esto significa que un dispositivo LoRa puede ocupar el canal sólo ~36 segundos por hora. **Mitigación:** Asegurarse de que la frecuencia elegida cumple normativa local (p.ej., 868.1 MHz tiene duty cycle 1%). Limitar la frecuencia de consultas para no exceder este duty cycle. Si un nodo o la Pi envían muchos datos, podrían violar la normativa. ChirpStack en modo LoRaWAN se encarga de respetar duty cycle en downlinks; si trabajamos en capa propia, debemos manualmente implementar pausas si se llega al límite. En la práctica, si las peticiones son esporádicas, no habrá problema.
+- **Seguridad de las comunicaciones:** Los datos viajan por radio sin cifrado a menos que lo implementemos. Podría interceptarse la información. **Mitigación:** Utilizar **cifrado** en la capa de aplicación o usar LoRaWAN que ya incluye AES-128 en las cargas útiles. Por ejemplo, podríamos acordar una clave simétrica y cifrar el contenido JSON antes de enviarlo LoRa (aplicar XOR, AES u otro). Dado que tenemos control de ambos extremos, esto es factible. MQTT sobre LoRaWAN con ChirpStack ya estaría cifrado de extremo a extremo (solo la aplicación server lo ve descifrado). Para una versión simple, quizás no cifremos pero somos conscientes de la posible exposición. Si se envían datos sensibles, incluir cifrado es muy recomendable.
+- **Integración FastAPI ↔ MQTT:** A nivel software, hay que asegurar que la API FastAPI pueda interactuar con la cola de mensajes. **Mitigación:** Podemos utilizar un hilo separado o tarea async en FastAPI que se suscriba a los tópicos MQTT (usando por ejemplo la librería `paho-mqtt` o `aiomqtt`). Cuando llegue un mensaje de petición, podríamos almacenarlo en una estructura y quizás usar `asyncio.Event` para notificar al endpoint correspondiente si está esperando. Otra opción es no involucrar FastAPI en la escucha MQTT, sino tener un bucle independiente que directamente llame a funciones de la lógica de FastAPI (importando el módulo). Esto rompe un poco la arquitectura REST, pero funciona internamente. En cualquier caso, debemos tener cuidado de no bloquear el server FastAPI (usar async apropiadamente).
+
+Finalmente, probar el sistema de extremo a extremo es vital. Se pueden realizar pruebas con un único ESP32 y la Pi en corto alcance, luego ir incrementando distancia y número de nodos. Observar la calidad de señal (RSSI, SNR) que reportan los paquetes LoRa para entender hasta dónde llega la cobertura. Afinar parámetros de transmisión en función de eso (por ejemplo, subir SF si hace falta más alcance, sabiendo que penaliza la velocidad). También aprovechar las herramientas que nos da MQTT: por ejemplo, registrar en logs cada mensaje publicado y sus tiempos para medir latencias reales.
+
+En síntesis, la solución propuesta combina **tecnologías IoT (LoRa, MQTT) con web (FastAPI)** para lograr consultas remotas de larga distancia. Aunque conlleva retos en tiempo real y limitaciones de enlace, con un buen diseño de protocolos ligeros y sincronización adecuada, es posible lograr un sistema funcional. Este enfoque habilita casos de uso como sensores en áreas rurales donde los usuarios pueden, mediante su móvil conectado a un nodo cercano, obtener datos o enviar comandos a un servidor central a kilómetros de distancia sin infraestructura de comunicaciones tradicional. Las consideraciones descritas arriba servirán para construir una infraestructura robusta y extensible.
+
+**Referencias:** FastAPI Docker ([FastAPI in Containers - Docker - FastAPI](https://fastapi.tiangolo.com/deployment/docker/#:~:text=This is what you would,in most cases%2C for example)), Meshtastic Linux ([Meshtastic on Linux-Native Devices | Meshtastic](https://meshtastic.org/docs/hardware/devices/linux-native-hardware/#:~:text=,pin conflicts when stacking hats)), Proyecto LoRa MQTT ([MQTT Manager, Lora and Lora 'Poor Man' Gateway - Super Cheap : 11 Steps - Instructables](https://www.instructables.com/MQTT-Manager-Lora-and-Lora-Poor-Man-Gateway-Cheap-/#:~:text=Apartment)), Foro RAK/ChirpStack ([Storing Data locally in Raspberry-Pi with Lorawan Gateway - WisGate Connect RAK7391 - RAKwireless Forum](https://forum.rakwireless.com/t/storing-data-locally-in-raspberry-pi-with-lorawan-gateway/9729#:~:text=The simplest one ,MQTT instead of TTN’s MQTT)), Instructables Gateway ([Use Lora Shield and RPi to Build a LoRaWAN Gateway : 10 Steps (with Pictures) - Instructables](https://www.instructables.com/Use-Lora-Shield-and-RPi-to-Build-a-LoRaWAN-Gateway/#:~:text=,and will never be)), MicroPython WiFi AP ([MicroPython: ESP32/ESP8266 Access Point (AP) | Random Nerd Tutorials](https://randomnerdtutorials.com/micropython-esp32-esp8266-access-point-ap/#:~:text=ap %3D network,password%3Dpassword)), MicroPython LoRa (GoWombat) ([[IoT\] LoRa with MicroPython on the ESP8266 and ESP32 | by German Gensetskiy | Go Wombat | Medium](https://medium.com/gowombat/iot-lora-with-micropython-on-the-esp8266-and-esp32-59d1a4b507ca#:~:text=Next step was in understanding,version for ESP32 named uPyLora)) ([[IoT\] LoRa with MicroPython on the ESP8266 and ESP32 | by German Gensetskiy | Go Wombat | Medium](https://medium.com/gowombat/iot-lora-with-micropython-on-the-esp8266-and-esp32-59d1a4b507ca#:~:text=counter %2B%3D 1 time)).
 
