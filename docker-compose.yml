@@ -31,7 +31,10 @@ services:
       - "1700:1700/udp"  # Puerto para tráfico LoRaWAN
     volumes:
       - ./tts/config:/config
+      - ./tts/data:/data
     environment:
       - TTN_LW_CONFIG=/config/ttn-lw-stack-docker.yml
+    depends_on:
+      - mosquitto
     restart: unless-stopped
 
