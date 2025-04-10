@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI
 import paho.mqtt.client as mqtt
 
@@ -27,4 +28,12 @@ async def read_root():
 async def publish_message(message: str):
     mqtt_client.publish(MQTT_TOPIC, message)
     return {"message": f"Publicado: {message}"}
+
+@app.get("/info")
+async def get_info():
+    return {
+        "nombre_api": "LoRaWAN FastAPI",
+        "version": "1.0",
+        "descripcion": "Ofrece endpoints para publicar y recibir mensajes via MQTT."
+    }
 
