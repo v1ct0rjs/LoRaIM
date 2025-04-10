@@ -1,0 +1,62 @@
+# ====================
+# ChirpStack Config
+# ====================
+
+[general]
+log_level = "info"
+
+# La base de datos para ChirpStack, usando PostgreSQL.
+[database]
+# DSN: postgres://USUARIO:CONTRASEÑA@HOST/BASE_DE_DATOS?sslmode=disable
+dsn = "postgres://chirpstack:chirpstack@postgres/chirpstack?sslmode=disable"
+
+# -----------
+# Network Server
+# -----------
+[network_server]
+# Identificador (NetID). Para redes privadas, se suele poner 000000.
+net_id = "000000"
+
+# Band plan LoRaWAN de tu región: EU868, US915, etc.
+band = "EU868"
+
+# (Opcional) Deshabilita algunas configuraciones de canales para gateways de 1 canal
+disable_mac_command_channel_setup = true
+
+# Si tu gateway es single-channel en 868.1 MHz, podrías usar extra_channels:
+[[network_server.network_settings.extra_channels]]
+frequency = 868100000
+min_dr = 0
+max_dr = 5
+
+# Gateway Bridge: aquí configuras cómo se conecta ChirpStack al Gateway Bridge vía MQTT
+[gateway_bridge]
+mqtt_server = "tcp://mqtt:1883"
+mqtt_username = ""
+mqtt_password = ""
+
+# -----------
+# Application Server
+# -----------
+[application_server]
+# Clave JWT para firmar tokens de API. Usa una cadena aleatoria o déjala en blanco para que se genere automáticamente.
+jwt_secret = "secret-que-deberias-cambiar"
+
+# Integración con MQTT para uplinks/downlinks a aplicaciones.
+[application_server.integration.mqtt]
+server = "tcp://mqtt:1883"
+username = ""
+password = ""
+
+# (Opcional) Ajustar parámetros de almacenamiento de datos, dashboards, etc.
+
+# -----------
+# API y Dashboard
+# -----------
+[api]
+# Interfaz web y API REST. Puerto 8080 en el contenedor.
+bind = "0.0.0.0:8080"
+
+[api.http]
+# Si deseas acceso sin TLS, configúralo aquí. Para HTTPS, necesitarías configurar certificados.
+tls_enabled = false

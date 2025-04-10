@@ -1,40 +1,99 @@
-version: '3.8'
-
+version: "3.8"
 services:
-  mosquitto:
-    image: eclipse-mosquitto:latest
-    container_name: mosquitto
-    ports:
-      - "1883:1883"
-    volumes:
-      - './mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf'
-      - './mosquitto/data:/mosquitto/data'
-      - './mosquitto/log:/mosquitto/log'
+  fastapi:
+    build: ./fastapi
+    container_name: fastapi
     restart: unless-stopped
-
-  api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    container_name: fastapi_app
     ports:
       - "8000:8000"
     depends_on:
-      - mosquitto
+      - mqtt
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  mqtt:
+    image: eclipse-mosquitto:2.0.15
+    container_name: mosquitto
     restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      # Ajustamos las rutas para que apunten a ./mosquitto/...
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
 
   chirpstack:
-    image: chirpstack/chirpstack:4
+    image: chirpstack/chirpstack:4.2.0-armv7
     container_name: chirpstack
-    ports:
-      - "8080:8080"        # Interfaz web
-      - "1700:1700/udp"    # Tráfico LoRaWAN
-    volumes:
-      - './chirpstack/config:/etc/chirpstack'
-      - './chirpstack/data:/var/lib/chirpstack'
-    environment:
-      - CHIRPSTACK_API_PUBLIC_HOST=0.0.0.0
-    depends_on:
-      - mosquitto
     restart: unless-stopped
+    depends_on:
+      - mqtt
+      - postgres
+    ports:
+      - "8080:8080"
+      - "1700:1700/udp"
+    volumes:
+      # Archivo de config en carpeta chirpstack/config
+      - ./chirpstack/config/chirpstack.toml:/etc/chirpstack/chirpstack.toml
+    environment:
+      - CHIRPSTACK__DATABASE__DSN=postgres://chirpstack:chirpstack@postgres/chirpstack?sslmode=disable
+      - CHIRPSTACK__NETWORK_SERVER__NET_ID=000000
+      - CHIRPSTACK__NETWORK_SERVER__BAND=EU868
+      - CHIRPSTACK__GATEWAY_BRIDGE__MQTT_SERVER=tcp://mqtt:1883
+      - CHIRPSTACK__GATEWAY_BRIDGE__MQTT_USERNAME=
+      - CHIRPSTACK__GATEWAY_BRIDGE__MQTT_PASSWORD=
+      - CHIRPSTACK__APPLICATION_SERVER__INTEGRATION__MQTT__SERVER=tcp://mqtt:1883
+      - CHIRPSTACK__APPLICATION_SERVER__INTEGRATION__MQTT__USERNAME=
+      - CHIRPSTACK__APPLICATION_SERVER__INTEGRATION__MQTT__PASSWORD=
 
+  chirpstack_gateway_bridge:
+    image: chirpstack/chirpstack-gateway-bridge:3.14.0-armv7
+    container_name: chirpstack-gateway-bridge
+    restart: unless-stopped
+    depends_on:
+      - mqtt
+    networks:
+      - internal
+    volumes:
+      - ./chirpstack/config/chirpstack-gateway-bridge.toml:/etc/chirpstack-gateway-bridge/chirpstack-gateway-bridge.toml
+    # No exponemos puertos al host, la comunicación es interna con packet_forwarder
+
+  packet_forwarder:
+    build: ./packet-forwarder
+    container_name: packet-forwarder
+    restart: unless-stopped
+    networks:
+      - internal
+    devices:
+      - "/dev/spidev0.0:/dev/spidev0.0"
+      - "/dev/gpiomem:/dev/gpiomem"
+    environment:
+      - GW_RESET_PIN=17
+      - SERVER_ADDRESS=chirpstack_gateway_bridge
+      - SERVER_PORT_UP=1700
+      - SERVER_PORT_DOWN=1700
+      - GATEWAY_ID=AA555A0000000000
+      - FREQUENCY=868100000
+      - BANDWIDTH=125
+      - SPREADING_FACTOR=7
+
+  postgres:
+    image: postgres:14-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=chirpstack
+      - POSTGRES_PASSWORD=chirpstack
+      - POSTGRES_DB=chirpstack
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  mosq_data:
+  mosq_log:
+  pg_data:
