@@ -1,7 +1,6 @@
 services:
   mosquitto:
     image: eclipse-mosquitto:2
-    container_name: mosquitto
     restart: unless-stopped
     volumes:
       - ./mosquitto/conf:/mosquitto/config
@@ -9,12 +8,12 @@ services:
     networks: [iot]
 
   api:
-    build: ./api       # tu código FastAPI
-    container_name: fastapi
+    build: ./api            # tu Dockerfile con Uvicorn
     restart: unless-stopped
     environment:
-      - MQTT_HOST=mosquitto
-      - MQTT_PORT=1883
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_TOPIC: factory/cmd
     depends_on: [mosquitto]
     ports:
       - "8000:8000"
@@ -22,4 +21,5 @@ services:
 
 networks:
   iot:
+
 
