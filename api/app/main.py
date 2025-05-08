@@ -37,3 +37,4 @@ async def get_info():
         "descripcion": "Ofrece endpoints para publicar y recibir mensajes via MQTT."
     }
 
+

@@ -1,25 +1,29 @@
+version: "3.9"
+
 services:
-  mosquitto:
-    image: eclipse-mosquitto:2
+  mosquitto:                       # broker MQTT 2.0.15
+    image: eclipse-mosquitto:2.0.15
+    container_name: mosquitto      # nombre DNS = mosquitto
     restart: unless-stopped
-    volumes:
-      - ./mosquitto/conf:/mosquitto/config
+    ports:
+      - "1883:1883"                # expón broker al host
+    volumes:                       # usa tu configuración local
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
     networks: [iot]
 
-  api:
-    build: ./api            # tu Dockerfile con Uvicorn
+  fastapi:                         # backend Python 3.11
+    build: ./api                   # Dockerfile que ya funciona
+    container_name: fastapi
     restart: unless-stopped
     environment:
-      MQTT_HOST: mosquitto
-      MQTT_PORT: 1883
-      MQTT_TOPIC: factory/cmd
+      - PYTHONUNBUFFERED=1
     depends_on: [mosquitto]
     ports:
-      - "8000:8000"
+      - "8000:8000"                # expón la API
     networks: [iot]
 
 networks:
-  iot:
-
+  iot:                             # red bridge por defecto
 
