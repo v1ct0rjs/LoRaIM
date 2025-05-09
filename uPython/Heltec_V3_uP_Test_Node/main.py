@@ -49,20 +49,6 @@ MAX_LINES   = 5
 
 display_buffer = ["" for _ in range(MAX_LINES)]
 
-# ───────── Optional Wi‑Fi ───────────────────────────────────────────────────
-WIFI_SSID     = "p3sc4"
-WIFI_PASSWORD = "octopus8117flc24"
-
-def wifi_connect():
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    if not wlan.isconnected():
-        wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-        for _ in range(100):
-            if wlan.isconnected():
-                break
-            time.sleep_ms(100)
-    return wlan.ifconfig()[0] if wlan.isconnected() else "No Wi‑Fi"
 
 # ───────── Globals ─────────────────────────────────────────────────────────
 tx_cnt = 0
@@ -155,12 +141,10 @@ def main():
     global rx_flag, rx_cnt, tx_cnt
 
     init_hardware()
-    ip = wifi_connect()
-    lcd_scroll("LoRa ↔ Host")
-    lcd_scroll(ip)
+    lcd_scroll("LoRa Tester")
 
     # Initial hello
-    transmit("Hello")
+    transmit("Hello Tester")
 
     while True:
         gc.collect()
