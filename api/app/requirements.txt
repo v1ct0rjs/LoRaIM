@@ -1,4 +1,7 @@
 fastapi
 uvicorn
 paho-mqtt
-
+python-multipart        # si piensas recibir ficheros
+feedparser
+pyyaml
+openai

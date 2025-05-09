@@ -1,0 +1,8 @@
+- name: AEMET
+  url: https://www.aemet.es/xml/avisos_cap_rss.xml
+
+- name: 112-Cantabria
+  url: https://www.112cantabria.es/web/guest/rss
+
+- name: DGT
+  url: https://infocar.dgt.es/etraffic/data/rss/IncidenciasTODAS.xml

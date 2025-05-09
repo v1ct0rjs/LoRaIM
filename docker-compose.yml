@@ -1,29 +1,37 @@
 version: "3.9"
 
 services:
-  mosquitto:                       # broker MQTT 2.0.15
+  mosquitto:
     image: eclipse-mosquitto:2.0.15
-    container_name: mosquitto      # nombre DNS = mosquitto
+    container_name: mosquitto
     restart: unless-stopped
     ports:
-      - "1883:1883"                # expón broker al host
-    volumes:                       # usa tu configuración local
+      - "1883:1883"
+    volumes:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
     networks: [iot]
 
-  fastapi:                         # backend Python 3.11
-    build: ./api                   # Dockerfile que ya funciona
+  fastapi:
+    build: ./api
     container_name: fastapi
     restart: unless-stopped
-    environment:
-      - PYTHONUNBUFFERED=1
     depends_on: [mosquitto]
+    environment:                     # ← todas las env que usa main.py / alert_ai
+      PYTHONUNBUFFERED:  "1"
+      MQTT_HOST:         mosquitto
+      MQTT_PORT:         "1883"
+      MQTT_TOPIC:        test/topic
+      # alert_ai
+      OPENAI_API_KEY:    ${OPENAI_API_KEY}    # exporta esta var en tu host
+      FEED_INTERVAL:     "300"                # segundos entre lecturas RSS
+      ALERT_TOPIC_IN:    alert/in
+      ALERT_TOPIC_OUT:   alert/out
+      FEEDS_FILE:        /app/feeds.yaml
     ports:
-      - "8000:8000"                # expón la API
+      - "8000:8000"
     networks: [iot]
 
 networks:
-  iot:                             # red bridge por defecto
-
+  iot:
