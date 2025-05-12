@@ -1,0 +1,29 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>LoRa Messenger</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; background: #f8f9fa; }
+    h1 { color: #343a40; }
+    form { margin-bottom: 1em; }
+    input[type="text"] { width: 300px; padding: 0.2em; }
+    pre { background: #e9ecef; padding: 1em; }
+  </style>
+</head>
+<body>
+  <h1>Interfaz LoRa</h1>
+  <form method="POST" action="/">
+    <label for="msg">Mensaje a enviar:</label>
+    <input id="msg" name="mensaje" type="text" placeholder="Escribe un mensaje" required>
+    <button type="submit">Enviar</button>
+  </form>
+  <h2>Historial de mensajes</h2>
+  <pre>
+{% for m in messages %}
+{{ m }}
+{% endfor %}
+  </pre>
+</body>
+</html>
