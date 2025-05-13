@@ -1,48 +1,83 @@
+<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>LoRa Bridge Frontend</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>LoRa Bridge Interface</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script src="https://unpkg.com/feather-icons"></script>
 </head>
 <body>
-  <h1>LoRa Messages</h1>
-  <div id="messages" class="messages"></div>
-
-  <form id="sendForm" class="send-form">
-    <input type="text" id="messageInput" placeholder="Escribe un mensaje" required>
-    <button type="submit">Enviar</button>
-  </form>
+  <div class="chat-container">
+    <header class="chat-header">
+      <h1>LoRa Bridge</h1>
+    </header>
+    <main id="messagesContainer" class="messages-container"></main>
+    <footer class="chat-footer">
+      <form id="sendForm" class="send-form">
+        <input type="text" id="messageInput" placeholder="Escribe un mensaje..." autocomplete="off" required>
+        <button type="submit" aria-label="Enviar">
+          <i data-feather="send"></i>
+        </button>
+      </form>
+    </footer>
+  </div>
 
   <script>
-    async function loadMessages() {
-      const res = await fetch('/messages');
-      const data = await res.json();
-      const cont = document.getElementById('messages');
-      cont.innerHTML = '';
-      data.messages.forEach(m => {
-        const p = document.createElement('p');
-        // Si el payload viene como objeto JSON, lo stringify; si es raw, lo mostramos directamente
-        p.textContent = m.payload.raw ?? JSON.stringify(m.payload);
-        cont.appendChild(p);
-      });
+    const msContainer = document.getElementById('messagesContainer');
+    const input = document.getElementById('messageInput');
+    const form = document.getElementById('sendForm');
+
+    function scrollToBottom(){
+      msContainer.scrollTop = msContainer.scrollHeight;
     }
 
-    document.getElementById('sendForm').addEventListener('submit', async e => {
+    async function loadMessages(){
+      const res = await fetch('/messages?limit=50');
+      const { messages } = await res.json();
+      msContainer.innerHTML = '';
+      messages.forEach(m => {
+        const el = document.createElement('div');
+        el.classList.add('message');
+        // Asumimos que payload.raw existe en todos los mensajes
+        const text = typeof m.payload === 'object'
+          ? (m.payload.raw ?? JSON.stringify(m.payload))
+          : m.payload;
+        el.textContent = text;
+
+        // Diferenciar enviado vs recibido
+        if (m.source === 'mqtt_client' || m.payload.raw?.startsWith('ACK:')) {
+          el.classList.add('sent');
+        } else {
+          el.classList.add('received');
+        }
+
+        msContainer.appendChild(el);
+      });
+      scrollToBottom();
+    }
+
+    form.addEventListener('submit', async e => {
       e.preventDefault();
-      const msg = document.getElementById('messageInput').value;
+      const msg = input.value.trim();
+      if (!msg) return;
+      form.querySelector('button').disabled = true;
       await fetch('/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg })
       });
-      document.getElementById('messageInput').value = '';
-      loadMessages();
+      input.value = '';
+      form.querySelector('button').disabled = false;
+      await loadMessages();
     });
 
-    // Recarga cada 5 s
-    setInterval(loadMessages, 5000);
+    feather.replace();
     loadMessages();
+    setInterval(loadMessages, 3000);
   </script>
 </body>
 </html>

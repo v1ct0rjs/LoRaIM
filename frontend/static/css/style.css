@@ -1,26 +1,126 @@
+/* static/css/style.css */
+:root {
+  --bg-light: #fff5f3;
+  --bg-dark: #ffe5e0;
+  --salmon: #fa8072;
+  --crimson: #dc143c;
+  --text-primary: #333;
+  --text-light: #555;
+  --font-family: 'Inter', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
 body {
-  font-family: Arial, sans-serif;
-  margin: 20px;
-  background: #f5f5f5;
+  font-family: var(--font-family);
+  background: var(--bg-light);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
 }
-h1 {
-  color: #333;
+
+.chat-container {
+  background: white;
+  width: 100%;
+  max-width: 420px;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  overflow: hidden;
 }
-.messages {
-  border: 1px solid #ccc;
-  background: #fff;
-  height: 300px;
-  overflow-y: scroll;
-  padding: 10px;
-  margin-bottom: 15px;
+
+.chat-header {
+  padding: 1rem;
+  background: var(--salmon);
+  color: white;
+  text-align: center;
 }
+
+.chat-header h1 {
+  font-weight: 500;
+  font-size: 1.25rem;
+}
+
+.messages-container {
+  flex: 1;
+  padding: 1rem;
+  background: var(--bg-light);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.message {
+  max-width: 75%;
+  padding: 0.75rem 1rem;
+  border-radius: 20px;
+  position: relative;
+  word-wrap: break-word;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.message.sent {
+  align-self: flex-end;
+  background: var(--crimson);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.message.received {
+  align-self: flex-start;
+  background: var(--bg-dark);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-footer {
+  padding: 0.5rem;
+  background: #f9f9f9;
+}
+
+.send-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .send-form input {
-  padding: 8px;
-  font-size: 1em;
-  width: 70%;
-  margin-right: 5px;
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  font-size: 1rem;
+  outline: none;
 }
+
+.send-form input:focus {
+  border-color: var(--salmon);
+}
+
 .send-form button {
-  padding: 8px 12px;
-  font-size: 1em;
+  background: var(--salmon);
+  border: none;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.send-form button:hover {
+  background: var(--crimson);
+}
+
+.send-form button svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  stroke: white;
 }
