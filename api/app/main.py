@@ -1,29 +1,28 @@
-# main.py
+import os
+import json
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-import paho.mqtt.client as mqtt
 from collections import deque
-import json
-import os
+from paho.mqtt import client as mqtt_client
 
-app = FastAPI()
-
-# CORS para permitir acceso desde el frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Ajustar en producción
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Variables de conexión MQTT (pueden sobreescribirse con env vars)
+# Configuración MQTT
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 MQTT_TOPIC = os.getenv("MQTT_TOPIC", "lorabridge/data")
 
-# Almacén circular de mensajes recibidos
+# Buffer circular de mensajes
 RECEIVED = deque(maxlen=100)
+
+app = FastAPI()
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Callbacks MQTT
 def on_connect(client, userdata, flags, rc):
@@ -31,52 +30,46 @@ def on_connect(client, userdata, flags, rc):
 
 
 def on_message(client, userdata, msg):
-    payload = msg.payload.decode()
+    payload_str = msg.payload.decode()
     try:
-        data = json.loads(payload)
+        data = json.loads(payload_str)
     except Exception:
-        data = {"raw": payload}
+        data = {"raw": payload_str}
     RECEIVED.append({
         "topic": msg.topic,
-        "payload": data
+        "payload": data,
+        "source": "received"
     })
-    print(f"[MQTT] RX: {payload} on {msg.topic}")
+    print(f"[MQTT RX] {payload_str}")
 
-# Cliente MQTT
-mqtt_client = mqtt.Client()
-mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
-mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
-mqtt_client.loop_start()
+# Crear cliente MQTT
+mqtt = mqtt_client.Client()
+mqtt.on_connect = on_connect
+mqtt.on_message = on_message
+mqtt.connect(MQTT_BROKER, MQTT_PORT)
+mqtt.loop_start()
 
 # Endpoints
 @app.get("/")
-async def read_root():
-    return {"message": "API funcionando correctamente"}
+async def root():
+    return {"status": "ok"}
 
 @app.get("/messages/")
 async def get_messages(limit: int = 20):
     msgs = list(RECEIVED)[-limit:]
-    return {
-        "count": len(RECEIVED),
-        "messages": msgs
-    }
+    return {"count": len(RECEIVED), "messages": msgs}
 
 @app.post("/publish/")
 async def publish_message(request: Request):
-    data = await request.json()
-    message = data.get("message")
+    body = await request.json()
+    message = body.get("message")
     if not message:
         return {"error": "No message provided"}
-    mqtt_client.publish(MQTT_TOPIC, message)
+
+    mqtt.publish(MQTT_TOPIC, message)
+    RECEIVED.append({
+        "topic": MQTT_TOPIC,
+        "payload": message,
+        "source": "sent"
+    })
     return {"published": message}
-
-@app.get("/info")
-async def get_info():
-    return {
-        "nombre_api": "LoRaWAN FastAPI",
-        "version": "1.1",
-        "descripcion": "Ofrece endpoints para publicar y recibir mensajes via MQTT."
-    }
-
-

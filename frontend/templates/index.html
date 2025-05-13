@@ -1,10 +1,9 @@
-<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>LoRa Bridge Interface</title>
+  <title>LoRa Bridge</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -12,9 +11,7 @@
 </head>
 <body>
   <div class="chat-container">
-    <header class="chat-header">
-      <h1>LoRa Bridge</h1>
-    </header>
+    <header class="chat-header"><h1>LoRa Bridge</h1></header>
     <main id="messagesContainer" class="messages-container"></main>
     <footer class="chat-footer">
       <form id="sendForm" class="send-form">
@@ -42,19 +39,11 @@
       messages.forEach(m => {
         const el = document.createElement('div');
         el.classList.add('message');
-        // Asumimos que payload.raw existe en todos los mensajes
         const text = typeof m.payload === 'object'
           ? (m.payload.raw ?? JSON.stringify(m.payload))
           : m.payload;
         el.textContent = text;
-
-        // Diferenciar enviado vs recibido
-        if (m.source === 'mqtt_client' || m.payload.raw?.startsWith('ACK:')) {
-          el.classList.add('sent');
-        } else {
-          el.classList.add('received');
-        }
-
+        el.classList.add(m.source === 'sent' ? 'sent' : 'received');
         msContainer.appendChild(el);
       });
       scrollToBottom();
@@ -62,8 +51,7 @@
 
     form.addEventListener('submit', async e => {
       e.preventDefault();
-      const msg = input.value.trim();
-      if (!msg) return;
+      const msg = input.value.trim(); if (!msg) return;
       form.querySelector('button').disabled = true;
       await fetch('/publish', {
         method: 'POST',
