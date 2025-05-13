@@ -4,6 +4,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from collections import deque
 from paho.mqtt import client as mqtt_client
+from pydantic import BaseModel
+import logging
 
 # Configuración MQTT
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
@@ -24,6 +26,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class PublishPayload(BaseModel):
+    message: str
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.info(f"MQTT Broker: {MQTT_BROKER}")
+logger.info(f"MQTT Port: {MQTT_PORT}")
+logger.info(f"MQTT Topic: {MQTT_TOPIC}")
+
+
 # Callbacks MQTT
 def on_connect(client, userdata, flags, rc):
     client.subscribe(MQTT_TOPIC)
@@ -40,14 +52,18 @@ def on_message(client, userdata, msg):
         "payload": data,
         "source": "received"
     })
-    print(f"[MQTT RX] {payload_str}")
+    logger.info(f"Received message: {data} from topic: {msg.topic}")
 
 # Crear cliente MQTT
 mqtt = mqtt_client.Client()
 mqtt.on_connect = on_connect
 mqtt.on_message = on_message
-mqtt.connect(MQTT_BROKER, MQTT_PORT)
-mqtt.loop_start()
+try:
+    mqtt.connect(MQTT_BROKER, MQTT_PORT)
+    mqtt.loop_start()
+except Exception as e:
+    logger.error(f"Failed to connect to MQTT broker: {e}")
+    raise
 
 # Endpoints
 @app.get("/")
@@ -60,16 +76,11 @@ async def get_messages(limit: int = 20):
     return {"count": len(RECEIVED), "messages": msgs}
 
 @app.post("/publish/")
-async def publish_message(request: Request):
-    body = await request.json()
-    message = body.get("message")
-    if not message:
-        return {"error": "No message provided"}
-
-    mqtt.publish(MQTT_TOPIC, message)
+async def publish_message(payload: PublishPayload):
+    mqtt.publish(MQTT_TOPIC, payload.message)
     RECEIVED.append({
         "topic": MQTT_TOPIC,
-        "payload": message,
+        "payload": payload.message,
         "source": "sent"
     })
-    return {"published": message}
+    return {"published": payload.message}
