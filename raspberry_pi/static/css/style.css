@@ -1,0 +1,123 @@
+/* static/css/style.css */
+
+/* --- Reseteo Básico y Estilos Globales --- */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    /* Fondo azul suave */
+    background-color: #eaf6ff;
+    color: #333;
+    padding: 20px;
+}
+
+/* --- Contenedor Principal --- */
+.container {
+    max-width: 800px;
+    margin: 20px auto; /* Centrado con margen superior/inferior */
+    background-color: #ffffff;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* --- Encabezados --- */
+h1 {
+    color: #0056b3; /* Azul más oscuro para el título */
+    text-align: center;
+    margin-bottom: 25px;
+    border-bottom: 2px solid #dee2e6;
+    padding-bottom: 15px;
+}
+
+h2 {
+    color: #007bff; /* Azul primario */
+    margin-top: 30px;
+    margin-bottom: 15px;
+    font-size: 1.4em;
+}
+
+/* --- Formulario --- */
+form {
+    display: flex; /* Alinear elementos horizontalmente */
+    gap: 10px; /* Espacio entre elementos */
+    margin-bottom: 30px;
+    align-items: center; /* Alinear verticalmente */
+}
+
+form label {
+    font-weight: bold;
+    color: #495057;
+    /* Ocultar si el placeholder es suficiente */
+    /* display: none; */
+}
+
+input[type="text"] {
+    flex-grow: 1; /* El input ocupa el espacio restante */
+    padding: 12px 15px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 1em;
+    transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+input[type="text"]:focus {
+    border-color: #80bdff;
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+
+button[type="submit"] {
+    padding: 12px 25px;
+    background-color: #28a745; /* Verde para enviar */
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1em;
+    font-weight: bold;
+    transition: background-color 0.2s ease-in-out;
+}
+button[type="submit"]:hover {
+    background-color: #218838; /* Verde más oscuro al pasar el ratón */
+}
+
+/* --- Historial de Mensajes (<pre>) --- */
+pre#message-history {
+    background-color: #f8f9fa; /* Fondo gris claro para el historial */
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 20px;
+    white-space: pre-wrap;       /* Permite que las líneas largas se ajusten */
+    word-wrap: break-word;       /* Rompe palabras largas si es necesario */
+    max-height: 400px;           /* Altura máxima con scroll */
+    overflow-y: auto;            /* Añadir barra de scroll vertical si se excede */
+    font-family: "Courier New", Courier, monospace; /* Fuente monoespaciada */
+    font-size: 0.95em;
+    line-height: 1.5;
+    color: #212529; /* Color de texto oscuro */
+}
+
+/* --- Responsividad --- */
+@media (max-width: 600px) {
+    form {
+        flex-direction: column; /* Apilar elementos en pantallas pequeñas */
+        align-items: stretch; /* Estirar elementos */
+    }
+    input[type="text"] {
+        width: 100%; /* Ocupar todo el ancho */
+    }
+    button[type="submit"] {
+         width: 100%; /* Ocupar todo el ancho */
+    }
+    .container {
+        padding: 20px;
+    }
+    h1 { font-size: 1.8em; }
+    h2 { font-size: 1.2em; }
+}

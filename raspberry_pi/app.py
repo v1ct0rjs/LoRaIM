@@ -1,117 +1,180 @@
-# app.py
-# ... (importaciones) ...
-app = Flask(__name__)
-
-# 1. Inicializar la conexión serial (UART) con el Heltec
-# Asegúrate que el dispositivo serial /dev/serial0 sea accesible DESDE DENTRO DEL CONTENEDOR
-# Esto requerirá mapear el dispositivo al contenedor en docker-compose.yml
-try:
-    ser = serial.Serial('/dev/ttyAMA0', baudrate=9600, timeout=1) # '/dev/ttyAMA0' es común para UART de pines GPIO en RPi.
-                                                                # Si usas USB-Serial al ESP32, podría ser '/dev/ttyUSB0' o '/dev/ttyACM0'
-                                                                # Ajusta según tu conexión física y cómo se mapea al contenedor.
-    print("Puerto serial /dev/ttyAMA0 abierto exitosamente.")
-except serial.SerialException as e:
-    print(f"Error al abrir el puerto serial: {e}. La aplicación podría no funcionar correctamente con LoRa.")
-    ser = None # Para que la app no crashee si el serial no está disponible
-
-# Path para el archivo de log DENTRO del contenedor.
-# Mapearemos este path a un directorio en el host usando docker-compose.yml
-log_file_container_path = "/app/logs/lora_messages.log"
-# Asegurarse de que el directorio de logs exista
+import serial
+import threading
+import datetime
 import os
-os.makedirs(os.path.dirname(log_file_container_path), exist_ok=True)
+import glob
+import time
+from flask import Flask, request, render_template, redirect, url_for, jsonify
+
+"""
+app.py – Puente Web ⇄ USB ⇄ Heltec LoRa v3
+-------------------------------------------------
+Este archivo reemplaza al original y añade compatibilidad
+con la Heltec LoRa v3 conectada por USB (CDC‑ACM).
+• Detecta dinámicamente /dev/ttyUSB* o toma la ruta indicada en
+  la variable de entorno LORA_SERIAL_PORT.
+• Sube la velocidad a 115 200 bps (valor por defecto del firmware
+  MicroPython Heltec).
+• Mantiene reconexión automática cuando la placa se desconecta / reconecta.
+No hay cambios en las rutas Flask ni en la plantilla; solo en la
+capa de acceso serie.
+"""
+
+# ──────────────────────────── CONFIGURACIÓN ────────────────────────────
+
+DEFAULT_USB_DEVICE = "/dev/ttyUSB0"  # Fallback si no se encuentra nada
+BAUD_RATE = int(os.getenv("LORA_BAUDRATE", "115200"))
+LOG_FILE_CONTAINER_PATH = "/app/logs/lora_messages.log"
+MAX_LOG_MESSAGES_IN_MEMORY = 50
 
 
-# ... (resto del código de app.py, usando log_file_container_path en lugar de log_file) ...
-# Ejemplo de cambio en la función read_from_uart:
-# with open(log_file_container_path, "a") as f:
-#     f.write(msg + "\n")
-# Y en la ruta index para POST:
-# with open(log_file_container_path, "a") as f:
-#     f.write(sent_msg + "\n")
+def resolve_serial_device() -> str:
+    """Devuelve el primer dispositivo serie disponible.
 
-# Hilo de lectura continua desde UART
-received_messages = []
-def read_from_uart():
-    """Lee continuamente desde la UART y guarda los datos recibidos."""
-    global ser # Necesario para acceder a la variable global
-    if not ser:
-        print("Hilo UART: Puerto serial no inicializado. El hilo no leerá.")
-        return # Salir del hilo si el serial no está disponible
+    Prioridad:
+        1. Variable de entorno LORA_SERIAL_PORT
+        2. Primer /dev/ttyUSB* encontrado
+        3. DEFAULT_USB_DEVICE
+    """
+    # 1️⃣ Variable de entorno explícita
+    env_port = os.getenv("LORA_SERIAL_PORT")
+    if env_port:
+        return env_port
 
+    # 2️⃣ Autodetección ttyUSB*
+    usb_devices = sorted(glob.glob("/dev/ttyUSB*"))
+    if usb_devices:
+        return usb_devices[0]
+
+    # 3️⃣ Fallback
+    return DEFAULT_USB_DEVICE
+
+
+SERIAL_PORT_INSIDE_CONTAINER = resolve_serial_device()
+
+app = Flask(__name__)
+ser = None
+received_messages_log = []  # En memoria para el front‑end
+
+# ──────────────────────────── FUNCIONES AUX ────────────────────────────
+
+
+def initialize_serial() -> bool:
+    """Intenta abrir el puerto serie (con autodetección cada vez)."""
+    global ser, SERIAL_PORT_INSIDE_CONTAINER
+
+    SERIAL_PORT_INSIDE_CONTAINER = resolve_serial_device()
+    try:
+        ser = serial.Serial(SERIAL_PORT_INSIDE_CONTAINER, BAUD_RATE, timeout=1)
+        print(f"Puerto serial {SERIAL_PORT_INSIDE_CONTAINER} abierto a {BAUD_RATE} bps.")
+        return True
+    except serial.SerialException as e:
+        print(f"Error al abrir {SERIAL_PORT_INSIDE_CONTAINER}: {e}")
+        return False
+    except Exception as e:
+        print(f"Error inesperado al abrir {SERIAL_PORT_INSIDE_CONTAINER}: {e}")
+        return False
+
+
+def ensure_log_directory():
+    try:
+        log_dir = os.path.dirname(LOG_FILE_CONTAINER_PATH)
+        os.makedirs(log_dir, exist_ok=True)
+        print(f"Directorio de logs asegurado: {log_dir}")
+    except Exception as e:
+        print(f"Error creando directorio de logs: {e}")
+
+
+def log_message(message_string: str, is_received: bool = True):
+    """Añade un mensaje al log en memoria y a disco."""
+    global received_messages_log
+    prefix = "Recibido" if is_received else "Enviado"
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    formatted_msg = f"{prefix} [{timestamp}]: {message_string}"
+
+    # Memoria
+    received_messages_log.append(formatted_msg)
+    if len(received_messages_log) > MAX_LOG_MESSAGES_IN_MEMORY * 2:
+        received_messages_log = received_messages_log[-MAX_LOG_MESSAGES_IN_MEMORY:]
+
+    # Disco
+    try:
+        with open(LOG_FILE_CONTAINER_PATH, "a") as f:
+            f.write(formatted_msg + "\n")
+    except Exception as e:
+        print(f"Error escribiendo en archivo de log ({LOG_FILE_CONTAINER_PATH}): {e}")
+
+
+# ──────────────────────────── HILO UART RX ────────────────────────────
+
+
+def read_from_uart_thread():
+    global ser
+    print("Hilo de lectura UART iniciado.")
     while True:
-        try:
-            line = ser.readline().decode('utf-8', errors='ignore').strip()
-            if line:
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                msg = f"Recibido [{timestamp}]: {line}"
-                received_messages.append(msg)
-                with open(log_file_container_path, "a") as f: # Usar la nueva variable
-                    f.write(msg + "\n")
-        except serial.SerialException as e: # Manejar errores específicos del serial
-            print(f"UART read error (SerialException): {e}. Intentando reabrir puerto...")
-            if ser: ser.close()
-            time.sleep(5) # Esperar antes de reintentar
-            try:
-                ser = serial.Serial('/dev/ttyAMA0', baudrate=9600, timeout=1) # Reintentar abrir
-                print("Puerto serial reabierto exitosamente.")
-            except serial.SerialException as e_reopen:
-                print(f"Fallo al reabrir puerto serial: {e_reopen}. El hilo de lectura se detendrá.")
-                ser = None # Marcar como no disponible
-                break # Salir del bucle while
-        except Exception as e:
-            print(f"UART read error (General Exception): {e}")
-            # No romper el bucle por errores genéricos, solo por SerialException si no se puede reabrir
-            time.sleep(1) # Pequeña pausa
-
-if ser: # Solo iniciar el hilo si el puerto serial se abrió correctamente
-    thread = threading.Thread(target=read_from_uart, daemon=True)
-    thread.start()
-else:
-    print("ADVERTENCIA: El puerto serial no pudo ser abierto. El hilo de lectura UART no se iniciará.")
-
-
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    global ser # Necesario para acceder a la variable global
-    if request.method == 'POST':
-        text = request.form.get('mensaje', '')
-        if text:
-            if ser and ser.is_open: # Verificar que el puerto esté abierto antes de escribir
-                try:
-                    ser.write((text + "\n").encode('utf-8'))
-                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    sent_msg = f"Enviado [{timestamp}]: {text}"
-                    with open(log_file_container_path, "a") as f: # Usar la nueva variable
-                        f.write(sent_msg + "\n")
-                    received_messages.append(sent_msg)
-                except serial.SerialException as e:
-                    print(f"Error al escribir en UART: {e}")
-                    # Podrías añadir un mensaje de error para el usuario aquí
-                    received_messages.append(f"Error TX UART: {e}")
-                except Exception as e_write:
-                    print(f"Error inesperado al escribir en UART: {e_write}")
-                    received_messages.append(f"Error TX UART Inesperado: {e_write}")
-
+        if not ser or not ser.is_open:
+            print("UART: puerto cerrado. Intentando inicializar…")
+            time.sleep(2)
+            if initialize_serial():
+                print("UART: puerto reabierto.")
             else:
-                print("Error: Intento de enviar mensaje pero el puerto serial no está disponible.")
-                received_messages.append("Error: Puerto serial no disponible para enviar.")
-        return redirect(url_for('index'))
+                continue  # Reintentar en siguiente iteración
+
+        try:
+            line_bytes = ser.readline()
+            if line_bytes:
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                if line:
+                    print(f"UART <<< {line}")
+                    log_message(line, is_received=True)
+        except serial.SerialException as e:
+            print(f"UART SerialException: {e}. Cerrando puerto…")
+            if ser:
+                ser.close()
+            ser = None  # Forzar re‑apertura
+        except Exception as e:
+            print(f"UART error inesperado: {e}")
+            time.sleep(1)
+
+
+# ──────────────────────────── RUTAS FLASK ────────────────────────────
+
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    global ser
+    if request.method == "POST":
+        text_to_send = request.form.get("mensaje", "")
+        if text_to_send:
+            if ser and ser.is_open:
+                try:
+                    ser.write((text_to_send + "\n").encode("utf-8"))
+                    print(f"UART >>> {text_to_send}")
+                    log_message(text_to_send, is_received=False)
+                except serial.SerialException as e:
+                    print(f"Error TX SerialException: {e}")
+                    log_message(f"Error TX: {e}", is_received=False)
+                except Exception as e_write:
+                    print(f"Error TX inesperado: {e_write}")
+                    log_message(f"Error TX inesperado: {e_write}", is_received=False)
+            else:
+                print("Error: puerto serie no disponible.")
+                log_message("Error: puerto serie no disponible", is_received=False)
+        return redirect(url_for("index"))
     else:
-        # Cargar mensajes del log al inicio si la lista en memoria está vacía (opcional)
-        # if not received_messages and os.path.exists(log_file_container_path):
-        #     try:
-        #         with open(log_file_container_path, "r") as f:
-        #             # Leer las últimas N líneas, por ejemplo
-        #             # Esto es solo un ejemplo, podría ser más complejo
-        #             tail_lines = f.readlines()[-50:] # Cargar las últimas 50 líneas
-        #             for line_from_log in tail_lines:
-        #                 received_messages.append(line_from_log.strip())
-        #     except Exception as e_log_read:
-        #         print(f"Error leyendo log al inicio: {e_log_read}")
+        # Últimos mensajes para la plantilla Jinja
+        return render_template("index.html", messages=list(reversed(received_messages_log[-MAX_LOG_MESSAGES_IN_MEMORY:])))
 
-        return render_template('index.html', messages=list(reversed(received_messages[-50:]))) # Mostrar los últimos 50
 
-if __name__ == '__main__':
-    # El host 0.0.0.0 es importante para que sea accesible desde fuera del contenedor
-    app.run(host='0.0.0.0', port=5000)
+# ──────────────────────────── ARRANQUE ────────────────────────────
+
+if __name__ == "__main__":
+    print("Iniciando aplicación LoRa‑Web…")
+    ensure_log_directory()
+
+    if initialize_serial():
+        threading.Thread(target=read_from_uart_thread, daemon=True).start()
+    else:
+        print("ADVERTENCIA: sin puerto serie disponible al inicio. Se volverá a intentar automáticamente.")
+
+    print("Servidor Flask listo en 0.0.0.0:5000 (Gunicorn maneja esto en Docker).")

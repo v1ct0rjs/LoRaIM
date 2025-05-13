@@ -2,28 +2,51 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>LoRa Messenger</title>
-  <style>
-    body { font-family: sans-serif; margin: 2em; background: #f8f9fa; }
-    h1 { color: #343a40; }
-    form { margin-bottom: 1em; }
-    input[type="text"] { width: 300px; padding: 0.2em; }
-    pre { background: #e9ecef; padding: 1em; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor LoRa RPi</title>
+    <!-- Enlazar el archivo CSS externo -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Eliminar la etiqueta <style> y su contenido de aquí -->
+
+    <script>
+        // --- Scroll Automático para el Historial ---
+        function scrollToBottom() {
+            const historyBox = document.getElementById('message-history');
+            if (historyBox.scrollHeight - historyBox.scrollTop <= historyBox.clientHeight + 50) {
+                historyBox.scrollTop = historyBox.scrollHeight;
+            }
+        }
+
+        // --- Auto-Refresco (Opcional) ---
+        function autoRefresh() {
+            setTimeout(() => {
+               window.location.reload();
+            }, 10000);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            scrollToBottom();
+            // autoRefresh();
+        });
+    </script>
 </head>
 <body>
-  <h1>Interfaz LoRa</h1>
-  <form method="POST" action="/">
-    <label for="msg">Mensaje a enviar:</label>
-    <input id="msg" name="mensaje" type="text" placeholder="Escribe un mensaje" required>
-    <button type="submit">Enviar</button>
-  </form>
-  <h2>Historial de mensajes</h2>
-  <pre>
-{% for m in messages %}
-{{ m }}
-{% endfor %}
-  </pre>
+    <div class="container">
+        <h1>Interfaz LoRa - Raspberry Pi</h1>
+
+        <form method="POST" action="/">
+            <!-- <label for="msg">Mensaje:</label> -->
+            <input id="msg" name="mensaje" type="text" placeholder="Escribe mensaje a enviar por LoRa..." required autocomplete="off">
+            <button type="submit">Enviar</button>
+        </form>
+
+        <h2>Historial de Mensajes</h2>
+        <pre id="message-history">
+{%- for m in messages %}
+{{ m.strip() }}
+{% endfor -%}
+        </pre>
+    </div>
 </body>
 </html>
