@@ -1,11 +1,9 @@
-/* static/css/style.css */
 :root {
   --bg-light: #fff5f3;
   --bg-dark: #ffe5e0;
   --salmon: #fa8072;
   --crimson: #dc143c;
   --text-primary: #333;
-  --text-light: #555;
   --font-family: 'Inter', sans-serif;
 }
 
@@ -69,15 +67,15 @@ body {
 }
 
 .message.sent {
-  align-self: flex-end;
   background: var(--crimson);
   color: white;
+  margin-left: auto;
   border-bottom-right-radius: 4px;
 }
 
 .message.received {
-  align-self: flex-start;
   background: var(--bg-dark);
+  margin-right: auto;
   border-bottom-left-radius: 4px;
 }
 
