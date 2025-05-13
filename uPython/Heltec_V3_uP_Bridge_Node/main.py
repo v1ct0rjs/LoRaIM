@@ -159,8 +159,9 @@ def main():
     lora = init_lora(); oled_scroll("LoRa OK")
 
     # MQTT setup
-    cid = b"bridge-" + ubinascii.hexlify(network.WLAN().config('mac')[-3:])
-    mqtt = MQTTClient(cid, MQTT_HOST, MQTT_PORT)
+    #cid = b"bridge-" + ubinascii.hexlify(network.WLAN().config('mac')[-3:])
+    cid = ubinascii.hexlify(network.WLAN().config('mac')).decode()  # ej. "a1b2c3d4e5f6"
+    mqtt = MQTTClient(cid, MQTT_HOST, MQTT_PORT, keepalive=60)
     mqtt.set_callback(make_mqtt_cb(lora))
     mqtt.connect(); mqtt.subscribe(MQTT_TOPIC)
     oled_scroll("MQTT OK")

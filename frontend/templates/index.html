@@ -2,47 +2,107 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>LoRa Bridge Frontend</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LoRa Bridge Interface</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script src="https://unpkg.com/feather-icons"></script>
 </head>
 <body>
-  <h1>LoRa Messages</h1>
-  <div id="messages" class="messages"></div>
-
-  <form id="sendForm" class="send-form">
-    <input type="text" id="messageInput" placeholder="Escribe un mensaje" required>
-    <button type="submit">Enviar</button>
-  </form>
+  <div class="chat-container">
+    <header class="chat-header">
+      <h1>LoRa Messages</h1>
+    </header>
+    <main id="messagesContainer" class="messages-container"></main>
+    <footer class="chat-footer">
+      <form id="sendForm" class="send-form">
+        <input type="text" id="messageInput" placeholder="Escribe un mensaje..." required autocomplete="off">
+        <button type="submit" aria-label="Enviar mensaje">
+          <i data-feather="send"></i>
+        </button>
+      </form>
+    </footer>
+  </div>
 
   <script>
-    async function loadMessages() {
-      const res = await fetch('/messages');
-      const data = await res.json();
-      const cont = document.getElementById('messages');
-      cont.innerHTML = '';
-      data.messages.forEach(m => {
-        const p = document.createElement('p');
-        // Si el payload viene como objeto JSON, lo stringify; si es raw, lo mostramos directamente
-        p.textContent = m.payload.raw ?? JSON.stringify(m.payload);
-        cont.appendChild(p);
-      });
+    const messagesContainer = document.getElementById('messagesContainer');
+    const messageInput = document.getElementById('messageInput');
+    const sendForm = document.getElementById('sendForm');
+
+    function scrollToBottom() {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    document.getElementById('sendForm').addEventListener('submit', async e => {
+    async function loadMessages() {
+      try {
+        const res = await fetch('/messages?limit=50');
+        if (!res.ok) {
+          messagesContainer.innerHTML = '<p class="error-message">Error al cargar mensajes.</p>';
+          return;
+        }
+        const data = await res.json();
+        messagesContainer.innerHTML = '';
+
+        if (data.messages && data.messages.length > 0) {
+          data.messages.forEach(m => {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message-bubble');
+
+            if (m.source === 'mqtt_client' || m.payload.startsWith('ACK:')) {
+              messageElement.classList.add('sent');
+            } else {
+              messageElement.classList.add('received');
+            }
+
+            const payloadContent = document.createElement('span');
+            payloadContent.classList.add('payload');
+            payloadContent.textContent = m.payload.raw ?? (typeof m.payload === 'object' ? JSON.stringify(m.payload) : m.payload);
+            messageElement.appendChild(payloadContent);
+
+            if (m.timestamp) {
+              const timestampElement = document.createElement('span');
+              timestampElement.classList.add('timestamp');
+              timestampElement.textContent = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              messageElement.appendChild(timestampElement);
+            }
+
+            messagesContainer.appendChild(messageElement);
+          });
+        } else {
+          messagesContainer.innerHTML = '<p class="info-message">No hay mensajes aún.</p>';
+        }
+        scrollToBottom();
+      } catch (error) {
+        messagesContainer.innerHTML = '<p class="error-message">Error de conexión al cargar mensajes.</p>';
+      }
+    }
+
+    sendForm.addEventListener('submit', async e => {
       e.preventDefault();
-      const msg = document.getElementById('messageInput').value;
-      await fetch('/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
-      });
-      document.getElementById('messageInput').value = '';
-      loadMessages();
+      const msg = messageInput.value.trim();
+      if (!msg) return;
+
+      messageInput.disabled = true;
+      sendForm.querySelector('button').disabled = true;
+
+      try {
+        await fetch('/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg })
+        });
+      } catch (error) {
+      } finally {
+        messageInput.value = '';
+        messageInput.disabled = false;
+        sendForm.querySelector('button').disabled = false;
+        messageInput.focus();
+        await loadMessages();
+      }
     });
 
-    // Recarga cada 5 s
-    setInterval(loadMessages, 5000);
+    feather.replace();
     loadMessages();
+    setInterval(loadMessages, 3000);
   </script>
 </body>
 </html>
