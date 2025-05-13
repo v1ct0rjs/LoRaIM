@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>LoRa Bridge Frontend</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <h1>LoRa Messages</h1>
+  <div id="messages" class="messages"></div>
+
+  <form id="sendForm" class="send-form">
+    <input type="text" id="messageInput" placeholder="Escribe un mensaje" required>
+    <button type="submit">Enviar</button>
+  </form>
+
+  <script>
+    async function loadMessages() {
+      const res = await fetch('/messages');
+      const data = await res.json();
+      const cont = document.getElementById('messages');
+      cont.innerHTML = '';
+      data.messages.forEach(m => {
+        const p = document.createElement('p');
+        // Si el payload viene como objeto JSON, lo stringify; si es raw, lo mostramos directamente
+        p.textContent = m.payload.raw ?? JSON.stringify(m.payload);
+        cont.appendChild(p);
+      });
+    }
+
+    document.getElementById('sendForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const msg = document.getElementById('messageInput').value;
+      await fetch('/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      document.getElementById('messageInput').value = '';
+      loadMessages();
+    });
+
+    // Recarga cada 5 s
+    setInterval(loadMessages, 5000);
+    loadMessages();
+  </script>
+</body>
+</html>
