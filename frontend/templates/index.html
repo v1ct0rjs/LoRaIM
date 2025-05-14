@@ -4,10 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>LoRa Instant Messenger</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-  <script src="https://unpkg.com/feather-icons"></script>
 </head>
 <body>
   <div class="chat-container">
@@ -16,9 +14,7 @@
     <footer class="chat-footer">
       <form id="sendForm" class="send-form">
         <input type="text" id="messageInput" placeholder="Escribe un mensaje..." autocomplete="off" required>
-        <button type="submit" aria-label="Enviar">
-          <i data-feather="send"></i>
-        </button>
+        <button type="submit" aria-label="Enviar">➤</button>
       </form>
     </footer>
   </div>
@@ -32,19 +28,20 @@
   const sendForm = document.getElementById("sendForm");
   const messageInput = document.getElementById("messageInput");
 
+  let lastMessageId = "";
+
   ws.onmessage = function(event) {
     const msg = JSON.parse(event.data);
+    const text = typeof msg.payload === "string" ? msg.payload : msg.payload.raw ?? JSON.stringify(msg.payload);
+    const messageId = msg.source + "|" + text;
+
+    if (messageId === lastMessageId) return;  // evita duplicados consecutivos
+    lastMessageId = messageId;
+
     const p = document.createElement("div");
     p.classList.add("message");
-    if (msg.source === "sent") {
-      p.classList.add("sent");
-    } else {
-      p.classList.add("received");
-    }
-
-    p.textContent = typeof msg.payload === "string"
-      ? msg.payload
-      : msg.payload.raw ?? JSON.stringify(msg.payload);
+    p.classList.add(msg.source === "sent" ? "sent" : "received");
+    p.textContent = text;
 
     messagesContainer.appendChild(p);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -52,8 +49,8 @@
 
   sendForm.addEventListener("submit", async function(e) {
     e.preventDefault();
-    const text = messageInput.value;
-    if (!text.trim()) return;
+    const text = messageInput.value.trim();
+    if (!text) return;
 
     await fetch("/publish", {
       method: "POST",

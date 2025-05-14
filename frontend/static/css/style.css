@@ -1,4 +1,3 @@
-
 :root {
   --bg: #000000;
   --box: #1a1a1a;
@@ -54,23 +53,26 @@ body {
 }
 
 .message {
-  max-width: 75%;
-  padding: 0.5rem 1rem;
-  border-radius: 1rem;
+  max-width: 70%;
+  padding: 0.6rem 1rem;
+  border-radius: 20px;
   word-break: break-word;
   font-size: 0.95rem;
+  display: inline-block;
 }
 
 .sent {
   background-color: var(--sent);
   align-self: flex-end;
   color: white;
+  border-bottom-right-radius: 0;
 }
 
 .received {
   background-color: var(--received);
   align-self: flex-start;
   color: white;
+  border-bottom-left-radius: 0;
 }
 
 .chat-footer {
@@ -97,8 +99,9 @@ body {
   background: var(--sent);
   border: none;
   color: white;
-  padding: 0 1rem;
+  padding: 0 1.2rem;
   border-radius: 8px;
+  font-size: 1.1rem;
   cursor: pointer;
 }
 
