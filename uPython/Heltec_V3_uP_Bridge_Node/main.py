@@ -38,6 +38,7 @@ import network
 from simple import MQTTClient
 from sx1262 import SX1262
 import ssd1306
+import ujson
 
 # ───────────────────────────────────────────────────────────
 # 1. utilidades .env
@@ -142,11 +143,21 @@ def init_lora():
 # 6. MQTT→LoRa callback
 # ───────────────────────────────────────────────────────────
 
-def make_mqtt_cb(lora):
+def make_mqtt_cb(lora, node_name):
+    #def _cb(topic, msg):
+    #    oled_scroll("MQTT→LoRa:" + msg.decode()[:8])
+    #    lora.send(msg + b"\n")
+    #    oled_scroll("LoRa TX OK")
     def _cb(topic, msg):
-        oled_scroll("MQTT→LoRa:" + msg.decode()[:8])
-        lora.send(msg + b"\n")
-        oled_scroll("LoRa TX OK")
+        try:
+            payload = ujson.loads(msg)
+            text = payload.get("message", msg.decode())
+        except:
+            text = msg.decode()
+
+        packed = ujson.dumps({"from": node_name, "message": text})
+        lora.send(packed.encode() + b"\n")
+        oled_scroll(text[:8])
     return _cb
 
 # ───────────────────────────────────────────────────────────
@@ -155,15 +166,20 @@ def make_mqtt_cb(lora):
 
 def main():
     init_oled(); oled_scroll("Booting…")
-    ip = wifi_connect(); oled_scroll("WiFi:" + ip)
-    lora = init_lora(); oled_scroll("LoRa OK")
+    ip = wifi_connect()
+    oled_scroll(ip)
+    lora = init_lora()
+    oled_scroll("LoRa OK")
 
     # MQTT setup
     #cid = b"bridge-" + ubinascii.hexlify(network.WLAN().config('mac')[-3:])
     cid = ubinascii.hexlify(network.WLAN().config('mac')).decode()  # ej. "a1b2c3d4e5f6"
+    NODE_NAME = "Node-" + cid[-6:].upper()
+    oled_scroll(NODE_NAME)
     mqtt = MQTTClient(cid, MQTT_HOST, MQTT_PORT, keepalive=60)
-    mqtt.set_callback(make_mqtt_cb(lora))
+    mqtt.set_callback(make_mqtt_cb(lora, NODE_NAME))
     mqtt.connect(); mqtt.subscribe(MQTT_TOPIC)
+
     oled_scroll("MQTT OK")
 
     PING_MS, last_ping = 10000, time.ticks_ms()
