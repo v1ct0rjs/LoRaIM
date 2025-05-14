@@ -49,12 +49,16 @@ def on_message(client, userdata, msg):
     payload_str = msg.payload.decode()
     try:
         data = json.loads(payload_str)
+        message = data.get("message", payload_str)
+        sender = data.get("from", "desconocido")
     except Exception:
-        data = {"raw": payload_str}
+        message = payload_str
+        sender = "desconocido"
+
     RECEIVED.append({
         "topic": msg.topic,
-        "payload": data,
-        "source": "received"
+        "payload": message,
+        "source": sender
     })
     logger.info(f"Received message: {data} from topic: {msg.topic}")
 

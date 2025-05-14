@@ -32,16 +32,25 @@
 
   ws.onmessage = function(event) {
     const msg = JSON.parse(event.data);
-    const text = typeof msg.payload === "string" ? msg.payload : msg.payload.raw ?? JSON.stringify(msg.payload);
-    const messageId = msg.source + "|" + text;
+    const text = typeof msg.payload === "string"
+      ? msg.payload
+      : msg.payload.raw ?? JSON.stringify(msg.payload);
+    const source = msg.source ?? "desconocido";
+    const messageId = source + "|" + text;
 
-    if (messageId === lastMessageId) return;  // evita duplicados consecutivos
+    if (messageId === lastMessageId) return;
     lastMessageId = messageId;
 
     const p = document.createElement("div");
     p.classList.add("message");
-    p.classList.add(msg.source === "sent" ? "sent" : "received");
-    p.textContent = text;
+
+    if (source === "sent") {
+      p.classList.add("sent");
+      p.textContent = text;
+    } else {
+      p.classList.add("received");
+      p.textContent = `${source}: ${text}`;
+    }
 
     messagesContainer.appendChild(p);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
