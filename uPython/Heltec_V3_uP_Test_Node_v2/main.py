@@ -32,13 +32,13 @@ USER_BUTTON = 0
 LED         = 35
 
 # ───────── LoRa settings — must match the peer node ────────────────────────
-FREQUENCY        = 866.3      # MHz
-BANDWIDTH        = 250.0      # kHz
-SPREADING_FACTOR = 9
+FREQUENCY        = 868.1      # MHz
+BANDWIDTH        = 125.0      # kHz
+SPREADING_FACTOR = 7
 CODING_RATE      = 5          # 4/5
-SYNC_WORD        = 0x12
-TRANSMIT_POWER   = 0         # dBm
-PAUSE            = 30         # s between automatic pings
+SYNC_WORD        = 0x34
+TRANSMIT_POWER   = 14         # dBm
+PAUSE            = 100        # s between automatic pings
 
 # ───────── OLED constants ──────────────────────────────────────────────────
 OLED_WIDTH  = 128
