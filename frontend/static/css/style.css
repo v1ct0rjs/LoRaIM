@@ -58,8 +58,10 @@ body {
   border-radius: 20px;
   word-break: break-word;
   font-size: 0.95rem;
-  display: inline-block;
+  display: block;               
+  width: fit-content;
 }
+
 
 .sent {
   background-color: var(--sent);
