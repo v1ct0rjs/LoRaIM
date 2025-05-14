@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -28,6 +27,7 @@
   const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
   const wsHost = location.hostname + ":8000";
   const ws = new WebSocket(wsProto + wsHost + "/ws");
+
   const messagesContainer = document.getElementById("messagesContainer");
   const sendForm = document.getElementById("sendForm");
   const messageInput = document.getElementById("messageInput");
@@ -41,7 +41,11 @@
     } else {
       p.classList.add("received");
     }
-    p.textContent = msg.payload;
+
+    p.textContent = typeof msg.payload === "string"
+      ? msg.payload
+      : msg.payload.raw ?? JSON.stringify(msg.payload);
+
     messagesContainer.appendChild(p);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   };
