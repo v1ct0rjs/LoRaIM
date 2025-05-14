@@ -4,70 +4,78 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>LoRa Instant Messenger</title>
+
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
   <div class="chat-container">
     <header class="chat-header"><h1>LoRa Instant Messenger</h1></header>
+
+    <!-- zona de mensajes -->
     <main id="messagesContainer" class="messages-container"></main>
+
+    <!-- caja de envío -->
     <footer class="chat-footer">
       <form id="sendForm" class="send-form">
-        <input type="text" id="messageInput" placeholder="Escribe un mensaje..." autocomplete="off" required>
-        <button type="submit" aria-label="Enviar">➤</button>
+        <input id="messageInput" type="text" placeholder="Escribe un mensaje…" autocomplete="off" required>
+        <button type="submit">➤</button>
       </form>
     </footer>
   </div>
 
 <script>
-  const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
-  const wsHost = location.hostname + ":8000";
-  const ws = new WebSocket(wsProto + wsHost + "/ws");
+  /* conexión WebSocket con FastAPI */
+  const wsProto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  const wsHost  = location.hostname + ':8000';
+  const ws      = new WebSocket(wsProto + wsHost + '/ws');
 
-  const messagesContainer = document.getElementById("messagesContainer");
-  const sendForm = document.getElementById("sendForm");
-  const messageInput = document.getElementById("messageInput");
+  const LOCAL_SOURCE = 'sent';              // cómo marca el backend nuestros propios envíos
+  const messagesEl   = document.getElementById('messagesContainer');
+  const sendForm     = document.getElementById('sendForm');
+  const msgInput     = document.getElementById('messageInput');
 
-  let lastMessageId = "";
+  let lastId = '';                          // para evitar mostrar el último duplicado
 
-  ws.onmessage = function(event) {
-    const msg = JSON.parse(event.data);
-    const text = typeof msg.payload === "string"
-      ? msg.payload
-      : msg.payload.raw ?? JSON.stringify(msg.payload);
-    const source = msg.source ?? "desconocido";
-    const messageId = source + "|" + text;
+  ws.onmessage = evt => {
+    const data    = JSON.parse(evt.data);   // {topic, payload, source}
+    const text    = data.payload;
+    const source  = data.source ?? 'desconocido';
 
-    if (messageId === lastMessageId) return;
-    lastMessageId = messageId;
+    /* evita duplicar el mismo mensaje consecutivo */
+    const msgId = source + '|' + text;
+    if (msgId === lastId) return;
+    lastId = msgId;
 
-    const p = document.createElement("div");
-    p.classList.add("message");
+    /* construir burbuja */
+    const div = document.createElement('div');
+    div.classList.add('message');
+    div.dataset.topic = data.topic;         // por si quieres filtrarlo en CSS
 
-    if (source === "sent") {
-      p.classList.add("sent");
-      p.textContent = text;
+    if (source === LOCAL_SOURCE) {
+      div.classList.add('sent');
+      div.textContent = 'Yo: ' + text;
     } else {
-      p.classList.add("received");
-      p.textContent = `${source}: ${text}`;
+      div.classList.add('received');
+      div.textContent = source + ': ' + text;
     }
 
-    messagesContainer.appendChild(p);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
   };
 
-  sendForm.addEventListener("submit", async function(e) {
+  /* enviar mensaje al backend → /publish/ */
+  sendForm.addEventListener('submit', async e => {
     e.preventDefault();
-    const text = messageInput.value.trim();
+    const text = msgInput.value.trim();
     if (!text) return;
 
-    await fetch("/publish", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text })
+    await fetch('/publish', {
+      method : 'POST',
+      headers: {'Content-Type':'application/json'},
+      body   : JSON.stringify({message: text})
     });
-
-    messageInput.value = "";
+    msgInput.value = '';
   });
 </script>
 </body>

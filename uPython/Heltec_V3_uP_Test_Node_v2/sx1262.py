@@ -1,9 +1,9 @@
 from _sx126x import *
 from sx126x import SX126X
 
-_SX126X_PA_CONFIG_SX1261 = const(0x01)
+_SX126X_PA_CONFIG_SX1262 = const(0x00)
 
-class SX1261(SX126X):
+class SX1262(SX126X):
     TX_DONE = SX126X_IRQ_TX_DONE
     RX_DONE = SX126X_IRQ_RX_DONE
     ADDR_FILT_OFF = SX126X_GFSK_ADDRESS_FILT_OFF
@@ -126,7 +126,7 @@ class SX1261(SX126X):
         return super().setFrequencyRaw(freq)
 
     def setOutputPower(self, power):
-        if not ((power >= -17) and (power <= 14)):
+        if not ((power >= -9) and (power <= 22)):
             return ERR_INVALID_OUTPUT_POWER
 
         ocp = bytearray(1)
@@ -134,7 +134,7 @@ class SX1261(SX126X):
         state = super().readRegister(SX126X_REG_OCP_CONFIGURATION, ocp_mv, 1)
         ASSERT(state)
 
-        state = super().setPaConfig(0x04, _SX126X_PA_CONFIG_SX1261, 0x00)
+        state = super().setPaConfig(0x04, _SX126X_PA_CONFIG_SX1262)
         ASSERT(state)
 
         state = super().setTxParams(power)

@@ -13,7 +13,9 @@ import asyncio
 # Configuración MQTT
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
-MQTT_TOPIC = os.getenv("MQTT_TOPIC", "lorabridge/data")
+MQTT_TOPIC_UP   = os.getenv("MQTT_TOPIC_UP",   "lorachat/up")
+MQTT_TOPIC_DOWN = os.getenv("MQTT_TOPIC_DOWN", "lorachat/down")
+
 
 # Buffer circular de mensajes
 RECEIVED = deque(maxlen=100)
@@ -37,12 +39,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.info(f"MQTT Broker: {MQTT_BROKER}")
 logger.info(f"MQTT Port: {MQTT_PORT}")
-logger.info(f"MQTT Topic: {MQTT_TOPIC}")
+logger.info(f"MQTT Topic: {MQTT_TOPIC_UP}")
 
 
 # Callbacks MQTT
 def on_connect(client, userdata, flags, rc):
-    client.subscribe(MQTT_TOPIC)
+    client.subscribe(MQTT_TOPIC_UP)
 
 
 def on_message(client, userdata, msg):
@@ -85,13 +87,18 @@ async def get_messages(limit: int = 20):
 
 @app.post("/publish/")
 async def publish_message(payload: PublishPayload):
-    mqtt.publish(MQTT_TOPIC, payload.message)
+    out = {
+        "from": "sent",
+        "message": payload.message
+    }
+    json_msg = json.dumps(out)
+    mqtt.publish(MQTT_TOPIC_DOWN, json_msg)
     RECEIVED.append({
-        "topic": MQTT_TOPIC,
+        "topic": MQTT_TOPIC_DOWN,
         "payload": payload.message,
         "source": "sent"
     })
-    return {"published": payload.message}
+    return {"published": out}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
