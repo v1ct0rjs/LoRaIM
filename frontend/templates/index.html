@@ -25,7 +25,9 @@
   </div>
 
 <script>
-  const ws = new WebSocket("ws://localhost:8000/ws");
+  const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
+  const wsHost = location.hostname + ":8000";
+  const ws = new WebSocket(wsProto + wsHost + "/ws");
   const messagesContainer = document.getElementById("messagesContainer");
   const sendForm = document.getElementById("sendForm");
   const messageInput = document.getElementById("messageInput");
