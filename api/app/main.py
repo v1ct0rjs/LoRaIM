@@ -2,10 +2,13 @@ import os
 import json
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import WebSocket
 from collections import deque
 from paho.mqtt import client as mqtt_client
 from pydantic import BaseModel
 import logging
+import asyncio
+
 
 # Configuración MQTT
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
@@ -14,13 +17,14 @@ MQTT_TOPIC = os.getenv("MQTT_TOPIC", "lorabridge/data")
 
 # Buffer circular de mensajes
 RECEIVED = deque(maxlen=100)
+clients = []
 
 app = FastAPI()
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -84,3 +88,16 @@ async def publish_message(payload: PublishPayload):
         "source": "sent"
     })
     return {"published": payload.message}
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    clients.append(websocket)
+    try:
+        while True:
+            await asyncio.sleep(1)
+            if RECEIVED:
+                last_msg = RECEIVED[-1]
+                await websocket.send_json(last_msg)
+    except:
+        clients.remove(websocket)

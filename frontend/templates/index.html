@@ -67,5 +67,27 @@
     loadMessages();
     setInterval(loadMessages, 3000);
   </script>
+
+<script>
+    const ws = new WebSocket("ws://localhost:8000/ws");
+
+    ws.onmessage = function(event) {
+        const msg = JSON.parse(event.data);
+        const box = document.getElementById("messages");
+        const p = document.createElement("p");
+        p.textContent = `[${msg.source}] ${JSON.stringify(msg.payload)}`;
+        box.appendChild(p);
+        box.scrollTop = box.scrollHeight;
+    };
+
+    ws.onopen = function() {
+        console.log("WebSocket conectado");
+    };
+
+    ws.onerror = function(err) {
+        console.error("WebSocket error:", err);
+    };
+</script>
+
 </body>
 </html>
