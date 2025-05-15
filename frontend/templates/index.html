@@ -1,37 +1,38 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>LoRaIM</title>
 
-  <!-- fuente + estilos -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <!-- Estilos y fuentes -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-
-  <!-- ✅ ①-② carga JS externo con defer (no bloquea el parser) -->
-  <script defer src="{{ url_for('static', filename='js/chat.js') }}"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
-
-  <!-- tarjeta principal del chat -->
   <div class="chat-container">
     <header class="chat-header">
-        <div class="header-title">
-            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="LoRaIM" class="header-logo">
-            <span>LoRa Instant Messenger</span>
+      <div class="header-title">
+        <div class="logo-container">
+          <img src="{{ url_for('static', filename='img/logo.png') }}" alt="LoRaIM Logo" class="header-logo" />
         </div>
-        <span id="unread" class="badge hidden">0</span>
+        <span>LoRa Instant Messenger</span>
+      </div>
+      <span id="unread" class="badge hidden">0</span>
     </header>
+
     <main id="msgs" class="messages-container"></main>
 
     <footer class="chat-footer">
-      <form id="sendForm" class="send-form" autocomplete="off">
-        <input id="msgInput" type="text" placeholder="Escribe un mensaje…" required>
+      <form id="sendForm" class="send-form">
+        <input id="msgInput" type="text" placeholder="Escribe un mensaje…" autocomplete="off" required>
         <button type="submit">➤</button>
       </form>
     </footer>
   </div>
 
+  <!-- Script WebSocket -->
+  <script defer src="{{ url_for('static', filename='js/chat.js') }}"></script>
 </body>
 </html>
+
