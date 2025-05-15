@@ -17,10 +17,12 @@
   <!-- tarjeta principal del chat -->
   <div class="chat-container">
     <header class="chat-header">
-      LoRa Instant Messenger
-      <span id="unread" class="badge hidden">0</span>
+        <div class="header-title">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="LoRaIM" class="header-logo">
+            <span>LoRa Instant Messenger</span>
+        </div>
+        <span id="unread" class="badge hidden">0</span>
     </header>
-
     <main id="msgs" class="messages-container"></main>
 
     <footer class="chat-footer">
