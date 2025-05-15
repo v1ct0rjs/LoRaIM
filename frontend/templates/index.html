@@ -8,13 +8,13 @@
 </head>
 <body>
 <div class="chat-container">
-  <!-- Logo sobresaliendo por encima del header -->
-  <div class="logo-container">
-    <img src="{{ url_for('static', filename='img/Logo.png') }}" alt="LoRaIM Logo" class="header-logo">
-  </div>
-
   <header class="chat-header">
-    <span class="header-text">LoRa Instant Messenger</span>
+    <div class="header-title">
+      <div class="logo-container">
+        <img src="{{ url_for('static', filename='img/Logo.png') }}" alt="LoRaIM Logo" class="header-logo">
+      </div>
+      <span>LoRa Instant Messenger</span>
+    </div>
     <span>
       <span id="unread" class="badge hidden">0</span>
     </span>
@@ -68,4 +68,20 @@ ws.onmessage = e=>{
 
 /* ---------- Enviar mensaje ---------- */
 formEl.addEventListener('submit',async e=>{
-  e.preventDe
+  e.preventDefault();
+  const txt=inputEl.value.trim(); if(!txt)return;
+  await fetch('/publish',{method:'POST',headers:{'Content-Type':'application/json'},
+                          body:JSON.stringify({message:txt})});
+  inputEl.value='';
+  msgsEl.scrollTop=msgsEl.scrollHeight;
+});
+
+/* ---------- Auto-reset badge al bajar ---------- */
+msgsEl.addEventListener('scroll',()=>{
+  if(msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15){
+    unread=0; badgeEl.classList.add('hidden');
+  }
+});
+</script>
+</body>
+</html>
