@@ -46,28 +46,42 @@ function addBubble({payload, source, time}){
 })();
 
 /* ---------- WebSocket ---------- */
-const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') +
+const wsUrl = (location.protocol==='https:' ? 'wss://' : 'ws://') +
               location.hostname + ':8000/ws';
 const ws = new WebSocket(wsUrl);
+
+/*  último mensaje por nodo  */
+const lastMsg = Object.create(null);          // {source:{payload,ts}}
+const DUP_WINDOW = 3000;                      // 3 s ventana anti-spam
 
 ws.onopen  = () => headerEl.classList.add('online');
 ws.onclose = () => headerEl.classList.remove('online');
 
 ws.onmessage = e => {
   const {payload, source='?'} = JSON.parse(e.data);
-  const id = source + '|' + payload;
-  if (seenIds.has(id)) return;
-  seenIds.add(id);
+  const now = Date.now();
 
+  /* ── filtra sólo si es exactamente igual y llega muy seguido ── */
+  if (lastMsg[source] &&
+      lastMsg[source].payload === payload &&
+      (now - lastMsg[source].ts) < DUP_WINDOW){
+    return;                                   // lo ignoramos
+  }
+  /* guarda referencia para la próxima comparación */
+  lastMsg[source] = { payload, ts: now };
+
+  /* ---- dibuja la burbuja ---- */
   addBubble({
-    payload, source,
+    payload,
+    source,
     time: new Date().toLocaleTimeString().slice(0,5)
   });
 
-  /* auto-scroll y badge */
-  const wasBottom =
+  /* ---- auto-scroll + badge ---- */
+  const atBottom =
         msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 25;
-  if (wasBottom){
+
+  if (atBottom){
     msgsEl.scrollTop = msgsEl.scrollHeight;
     unread = 0;
     badgeEl.classList.add('hidden');
