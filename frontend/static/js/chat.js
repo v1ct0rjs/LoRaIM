@@ -1,5 +1,5 @@
 const LOCAL_SOURCE = 'sent';
-const PAGE         = 50;   // mensajes iniciales
+const PAGE = 50;                       // carga inicial
 
 /* ---------- DOM ---------- */
 const msgsEl   = document.getElementById('msgs');
@@ -9,6 +9,7 @@ const inputEl  = document.getElementById('msgInput');
 const headerEl = document.querySelector('.chat-header');
 
 /* ---------- estado ---------- */
+const seenIds = new Set();
 let unread = 0;
 
 /* ---------- util ---------- */
@@ -25,52 +26,57 @@ function addBubble({payload, source, time}){
   msgsEl.appendChild(wrap);
 }
 
-/* ---------- carga inicial ---------- */
+/* ---------- carga inicial (últimos PAGE) ---------- */
 (async () => {
   const res = await fetch(`/messages?limit=${PAGE}`);
   const {messages} = await res.json();
-  messages.forEach(m => addBubble({
-    payload: m.payload,
-    source : m.source,
-    time   : new Date().toLocaleTimeString().slice(0,5)
-  }));
-  msgsEl.scrollTop = msgsEl.scrollHeight; // al fondo
+  messages.forEach(m => {
+    const id = m.source + '|' + m.payload;
+    if (!seenIds.has(id)){
+      addBubble({
+        payload: m.payload,
+        source : m.source,
+        time   : new Date().toLocaleTimeString().slice(0,5)
+      });
+      seenIds.add(id);
+    }
+  });
+  msgsEl.scrollTop = msgsEl.scrollHeight;      // al fondo
   inputEl.focus();
 })();
 
 /* ---------- WebSocket ---------- */
-const lastShown = Object.create(null);     // {source: payload}
+const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') +
+              location.hostname + ':8000/ws';
+const ws = new WebSocket(wsUrl);
+
+ws.onopen  = () => headerEl.classList.add('online');
+ws.onclose = () => headerEl.classList.remove('online');
 
 ws.onmessage = e => {
   const {payload, source='?'} = JSON.parse(e.data);
-
-  /* ── filtro de repetidos consecutivos ───────────────────── */
-  if (lastShown[source] === payload){
-    // ya se mostró este mismo texto justo antes: ignoramos
-    return;
-  }
-  lastShown[source] = payload;             // guarda el último de ese nodo
-  /* ───────────────────────────────────────────────────────── */
+  const id = source + '|' + payload;
+  if (seenIds.has(id)) return;
+  seenIds.add(id);
 
   addBubble({
-    payload,
-    source,
+    payload, source,
     time: new Date().toLocaleTimeString().slice(0,5)
   });
 
+  /* auto-scroll y badge */
   const wasBottom =
         msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 25;
-
   if (wasBottom){
     msgsEl.scrollTop = msgsEl.scrollHeight;
-    unread = 0; badgeEl.classList.add('hidden');
+    unread = 0;
+    badgeEl.classList.add('hidden');
   }else{
     unread++;
     badgeEl.textContent = unread;
     badgeEl.classList.remove('hidden');
   }
 };
-
 
 /* ---------- enviar ---------- */
 formEl.addEventListener('submit', async e => {
@@ -86,12 +92,12 @@ formEl.addEventListener('submit', async e => {
   msgsEl.scrollTop = msgsEl.scrollHeight;
 });
 
-/* atajo Ctrl + Enter */
+/* atajo Ctrl+Enter */
 formEl.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.ctrlKey) formEl.requestSubmit();
 });
 
-/* ---------- badge reset ---------- */
+/* ---------- badge reset al llegar al fondo ---------- */
 msgsEl.addEventListener('scroll', () => {
   if (msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 20){
     unread = 0;
