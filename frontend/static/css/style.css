@@ -40,11 +40,34 @@ body {
 }
 
 .chat-header {
-  background: var(--sent);
+  background: linear-gradient(to right, #3b308f, #5e54e7);
   color: white;
   text-align: center;
-  padding: 1rem;
+  padding: 0.8rem 1rem;
   font-size: 1.3rem;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 0.2rem 0.5rem;
+}
+
+.header-logo {
+  height: 2rem;
+  width: auto;
+  /* Añadir un ligero brillo alrededor del logo */
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.5));
 }
 
 .messages-container {
@@ -65,7 +88,6 @@ body {
   display: block;
   width: fit-content;
 }
-
 
 .sent {
   background-color: var(--sent);
@@ -125,10 +147,15 @@ body {
     --recv-fg:#e5e7eb;
   }
 }
-html,body{margin:0;height:100%;font-family:Inter,Arial,Helvetica,sans-serif;
-  background:var(--bg);color:var(--fg);}
-.chat-container{display:flex;flex-direction:column;height:100%;}
-.chat-header{padding:.5rem 1rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;}
+
+/* Versión minificada para compatibilidad */
+html,body{margin:0;height:100%;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--fg);}
+body{padding:2rem 0;display:flex;align-items:center;justify-content:center;}
+.chat-container{display:flex;flex-direction:column;height:100%;width:100%;max-width:90%;height:90vh;border-radius:12px;overflow:hidden;box-shadow:0 0 20px rgba(0,0,0,0.6);}
+.chat-header{background:linear-gradient(to right,#3b308f,#5e54e7);color:white;padding:0.8rem 1rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 5px rgba(0,0,0,0.2);}
+.header-title{display:flex;align-items:center;gap:0.8rem;}
+.logo-container{display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.15);border-radius:8px;padding:0.2rem 0.5rem;}
+.header-logo{height:2rem;width:auto;filter:drop-shadow(0 0 3px rgba(255,255,255,0.5));}
 .messages-container{flex:1;overflow-y:auto;padding:.5rem 1rem;display:flex;flex-direction:column;gap:.35rem;}
 .message{max-width:75%;padding:.4rem .6rem;border-radius:.8rem;font-size:.9rem;word-wrap:break-word;}
 .sent{align-self:flex-end;background:var(--sent);color:var(--sent-fg);}
@@ -138,23 +165,5 @@ html,body{margin:0;height:100%;font-family:Inter,Arial,Helvetica,sans-serif;
 .send-form{display:flex;gap:.4rem;}
 .send-form input{flex:1;padding:.4rem;border:1px solid #bbb;border-radius:.4rem;font-size:.9rem;}
 .send-form button{padding:.4rem .8rem;font-size:1rem;background:var(--sent);color:#fff;border:none;border-radius:.4rem;cursor:pointer;}
-/* Eliminamos el estilo para el botón de cambio de tema */
-/* .theme-toggle{cursor:pointer;font-size:1.1rem;user-select:none;} */
 .badge{background:var(--sent);color:#fff;border-radius:50%;font-size:.65rem;width:1.25rem;height:1.25rem;display:inline-flex;align-items:center;justify-content:center;margin-left:.4rem;}
 .hidden{display:none;}
-
-/* Añade esto junto con los demás estilos en style.css */
-.header-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.header-logo {
-  height: 1.8rem;
-  width: auto;
-}
-
-/* En la sección minificada, añade esto */
-.header-title{display:flex;align-items:center;gap:.5rem;}
-.header-logo{height:1.8rem;width:auto;}
