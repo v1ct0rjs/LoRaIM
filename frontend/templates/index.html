@@ -1,103 +1,89 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>LoRaIM</title>
-
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LoRaIM</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="chat-container">
-    <header class="chat-header">
-      <span>LoRa Instant Messenger</span>
-      <span>
-        <span id="unread" class="badge hidden">0</span>
-        <span id="themeBtn" class="theme-toggle">🌓</span>
-      </span>
-    </header>
+<div class="chat-container">
+  <header class="chat-header">
+    <span>LoRa Instant Messenger</span>
+    <span>
+      <span id="unread" class="badge hidden">0</span>
+      <span id="themeBtn" class="theme-toggle">🌓</span>
+    </span>
+  </header>
 
-    <main id="msgs" class="messages-container"></main>
+  <main id="msgs" class="messages-container"></main>
 
-    <footer class="chat-footer">
-      <form id="sendForm" class="send-form" autocomplete="off">
-        <input id="msgInput" type="text" placeholder="Escribe un mensaje…" required>
-        <button type="submit">➤</button>
-      </form>
-    </footer>
-  </div>
+  <footer class="chat-footer">
+    <form id="sendForm" class="send-form">
+      <input id="msgInput" type="text" placeholder="Escribe un mensaje…" autocomplete="off" required>
+      <button type="submit">➤</button>
+    </form>
+  </footer>
+</div>
 
-<!--  JS se ejecuta DESPUÉS de que el DOM exista  -->
 <script>
-window.addEventListener('DOMContentLoaded',()=>{
+const LOCAL_SOURCE = 'sent';
+const wsUrl = (location.protocol==='https:'?'wss://':'ws://')+location.hostname+':8000/ws';
+const ws    = new WebSocket(wsUrl);
 
-  /* --- Constantes --- */
-  const LOCAL_SOURCE='sent';
-  const wsUrl=(location.protocol==='https:'?'wss://':'ws://')+location.hostname+':8000/ws';
-  const ws    = new WebSocket(wsUrl);
+const msgsEl  = document.getElementById('msgs');
+const badgeEl = document.getElementById('unread');
+const formEl  = document.getElementById('sendForm');
+const inputEl = document.getElementById('msgInput');
+const themeBtn= document.getElementById('themeBtn');
 
-  /* --- Elementos --- */
-  const msgsEl  = document.getElementById('msgs');
-  const badgeEl = document.getElementById('unread');
-  const formEl  = document.getElementById('sendForm');
-  const inputEl = document.getElementById('msgInput');
-  const themeBtn= document.getElementById('themeBtn');
+let lastId='', unread=0;
 
-  let lastId='', unread=0;
+/* ---------- Mensajes entrantes ---------- */
+ws.onmessage = e=>{
+  const {payload, source, topic} = JSON.parse(e.data);
+  const sid = source+'|'+payload;
+  if(sid===lastId)return;               // evita duplicado
+  lastId=sid;
 
-  /* --- Tema guardado --- */
-  if(localStorage.theme==='dark'){
-    document.documentElement.classList.add('dark-mode');
+  const time = new Date().toLocaleTimeString().slice(0,5);
+  const div  = document.createElement('div');
+  div.className='message '+(source===LOCAL_SOURCE?'sent':'received');
+  div.innerHTML = `${source===LOCAL_SOURCE?'Yo':source}: ${payload}<span class="time">${time}</span>`;
+  msgsEl.appendChild(div);
+
+  // auto-scroll: sólo si el usuario estaba abajo (~15px)
+  const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15;
+  if(nearBottom){
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }else{
+    unread++;
+    badgeEl.textContent=unread;
+    badgeEl.classList.remove('hidden');
   }
+};
 
-  /* --- Recibir mensajes --- */
-  ws.onmessage = e=>{
-    const {payload, source='?', topic} = JSON.parse(e.data);
-    const id = source+'|'+payload;
-    if(id===lastId) return;
-    lastId=id;
-
-    const time = new Date().toLocaleTimeString().slice(0,5);
-    const div  = document.createElement('div');
-    div.className = 'message '+(source===LOCAL_SOURCE?'sent':'received');
-    div.innerHTML = `${source===LOCAL_SOURCE?'Yo':source}: ${payload}<span class="time">${time}</span>`;
-    msgsEl.appendChild(div);
-
-    /* auto-scroll inteligente */
-    const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15;
-    if(nearBottom){
-      msgsEl.scrollTop = msgsEl.scrollHeight;
-    }else{
-      unread++; badgeEl.textContent=unread; badgeEl.classList.remove('hidden');
-    }
-  };
-
-  /* --- Enviar --- */
-  formEl.addEventListener('submit',async e=>{
-    e.preventDefault();
-    const txt=inputEl.value.trim(); if(!txt) return;
-    await fetch('/publish',{method:'POST',headers:{'Content-Type':'application/json'},
-                            body:JSON.stringify({message:txt})});
-    inputEl.value='';
-    msgsEl.scrollTop=msgsEl.scrollHeight;
-  });
-
-  /* --- Limpiar contador al bajar --- */
-  msgsEl.addEventListener('scroll',()=>{
-    if(msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15){
-      unread=0; badgeEl.classList.add('hidden');
-    }
-  });
-
-  /* --- Botón tema --- */
-  themeBtn.onclick=()=>{
-    const root=document.documentElement;
-    root.classList.toggle('dark-mode');
-    localStorage.theme = root.classList.contains('dark-mode')?'dark':'light';
-  };
-
+/* ---------- Enviar mensaje ---------- */
+formEl.addEventListener('submit',async e=>{
+  e.preventDefault();
+  const txt=inputEl.value.trim(); if(!txt)return;
+  await fetch('/publish',{method:'POST',headers:{'Content-Type':'application/json'},
+                          body:JSON.stringify({message:txt})});
+  inputEl.value='';
+  msgsEl.scrollTop=msgsEl.scrollHeight;
 });
+
+/* ---------- Auto-reset badge al bajar ---------- */
+msgsEl.addEventListener('scroll',()=>{
+  if(msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15){
+    unread=0; badgeEl.classList.add('hidden');
+  }
+});
+
+/* ---------- Tema claro/oscuro ---------- */
+themeBtn.onclick=()=>{
+  document.documentElement.classList.toggle('dark-mode');
+};
 </script>
 </body>
 </html>
