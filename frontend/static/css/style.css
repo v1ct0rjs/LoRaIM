@@ -148,6 +148,14 @@ body {
   transition:filter .25s;
 }
 
+@keyframes fadeSlide{
+  from{opacity:0;transform:translateY(6px);}
+  to  {opacity:1;transform:none;}
+}
+.message{
+  animation:fadeSlide .18s ease;
+}
+
 
 /* Versión minificada para compatibilidad */
 html,body{margin:0;height:100%;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--fg);}

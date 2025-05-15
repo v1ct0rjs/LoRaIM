@@ -44,10 +44,25 @@ logger.info(f"MQTT Topic: {MQTT_TOPIC_UP}")
 
 # Callbacks MQTT
 def on_connect(client, userdata, flags, rc):
+    """
+    Callback de conexión MQTT. Se llama cuando el cliente se conecta al broker.
+    :param client:
+    :param userdata:
+    :param flags:
+    :param rc:
+    :return:
+    """
     client.subscribe(MQTT_TOPIC_UP)
 
 
 def on_message(client, userdata, msg):
+    """
+    Callback de mensaje MQTT. Se llama cuando se recibe un mensaje en un topic suscrito.
+    :param client:
+    :param userdata:
+    :param msg:
+    :return:
+    """
     payload_str = msg.payload.decode()
     try:
         data = json.loads(payload_str)
@@ -78,15 +93,32 @@ except Exception as e:
 # Endpoints
 @app.get("/")
 async def root():
+    """
+    Endpoint de prueba. Devuelve un mensaje de estado.
+    :return:
+    """
     return {"status": "ok"}
 
 @app.get("/messages/")
-async def get_messages(limit: int = 20):
-    msgs = list(RECEIVED)[-limit:]
-    return {"count": len(RECEIVED), "messages": msgs}
+async def get_messages(limit: int = 20, offset: int = 0):
+    """
+    Devuelve 'limit' mensajes *anteriores* al índice 'offset'
+    (0 = el más reciente). Sirve para paginación inversa.
+    """
+    total = len(RECEIVED)
+    start = max(total - offset - limit, 0)
+    end   = total - offset
+    msgs  = list(RECEIVED)[start:end]
+    return {"count": total, "messages": msgs}
+
 
 @app.post("/publish/")
 async def publish_message(payload: PublishPayload):
+    """
+    Endpoint para publicar un mensaje en el topic MQTT.
+    :param payload:
+    :return:
+    """
     out = {
         "from": "sent",
         "message": payload.message
@@ -102,6 +134,11 @@ async def publish_message(payload: PublishPayload):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    """
+    Endpoint WebSocket para recibir mensajes en tiempo real.
+    :param websocket:
+    :return:
+    """
     await websocket.accept()
     clients.append(websocket)
     try:
