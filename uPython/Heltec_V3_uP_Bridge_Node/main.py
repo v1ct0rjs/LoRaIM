@@ -2,7 +2,7 @@
 LoRaIM Bridge – Heltec V3 (ESP32-S3 + SX1262 + OLED)
 ====================================================
 
-Este código convierte una placa Heltec WiFi LoRa V3 en un puente bidireccional LoRa ↔ MQTT, facilitando la comunicación
+Este firmware convierte una placa Heltec WiFi LoRa V3 en un puente bidireccional LoRa ↔ MQTT, facilitando la comunicación
 transparente entre nodos LoRa y una infraestructura MQTT.
 
 Características Principales:
