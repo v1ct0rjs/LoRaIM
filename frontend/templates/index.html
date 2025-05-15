@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>LoRaIM</title>
 
-  <!-- fuentes & css -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
@@ -22,85 +21,83 @@
     <main id="msgs" class="messages-container"></main>
 
     <footer class="chat-footer">
-      <form id="sendForm" class="send-form">
-        <input id="msgInput" type="text" placeholder="Escribe un mensaje…" autocomplete="off" required>
+      <form id="sendForm" class="send-form" autocomplete="off">
+        <input id="msgInput" type="text" placeholder="Escribe un mensaje…" required>
         <button type="submit">➤</button>
       </form>
     </footer>
   </div>
 
+<!--  JS se ejecuta DESPUÉS de que el DOM exista  -->
 <script>
-/* ---------- constantes ---------- */
-const LOCAL_SOURCE = 'sent';
-const wsUrl = (location.protocol==='https:'?'wss://':'ws://') +
-              location.hostname + ':8000/ws';
-const ws       = new WebSocket(wsUrl);
+window.addEventListener('DOMContentLoaded',()=>{
 
-const msgsEl   = document.getElementById('msgs');
-const badgeEl  = document.getElementById('unread');
-const formEl   = document.getElementById('sendForm');
-const inputEl  = document.getElementById('msgInput');
-const themeBtn = document.getElementById('themeBtn');
+  /* --- Constantes --- */
+  const LOCAL_SOURCE='sent';
+  const wsUrl=(location.protocol==='https:'?'wss://':'ws://')+location.hostname+':8000/ws';
+  const ws    = new WebSocket(wsUrl);
 
-let lastId='', unread=0;
+  /* --- Elementos --- */
+  const msgsEl  = document.getElementById('msgs');
+  const badgeEl = document.getElementById('unread');
+  const formEl  = document.getElementById('sendForm');
+  const inputEl = document.getElementById('msgInput');
+  const themeBtn= document.getElementById('themeBtn');
 
-/* ---------- carga tema guardado ---------- */
-if (localStorage.theme === 'dark') {
-  document.documentElement.classList.add('dark-mode');
-}
+  let lastId='', unread=0;
 
-/* ---------- recibir mensajes ---------- */
-ws.onmessage = evt => {
-  const {payload, source='?', topic} = JSON.parse(evt.data);
-  const msgId = source + '|' + payload;
-  if (msgId === lastId) return;      // evita duplicado inmediato
-  lastId = msgId;
-
-  const time = new Date().toLocaleTimeString().slice(0,5);
-  const div  = document.createElement('div');
-  div.className = 'message ' + (source === LOCAL_SOURCE ? 'sent' : 'received');
-  div.innerHTML = `${source===LOCAL_SOURCE?'Yo':source}: ${payload}
-                   <span class="time">${time}</span>`;
-  msgsEl.appendChild(div);
-
-  const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15;
-  if (nearBottom) {
-    msgsEl.scrollTop = msgsEl.scrollHeight;
-  } else {
-    unread++;
-    badgeEl.textContent = unread;
-    badgeEl.classList.remove('hidden');
+  /* --- Tema guardado --- */
+  if(localStorage.theme==='dark'){
+    document.documentElement.classList.add('dark-mode');
   }
-};
 
-/* ---------- enviar ---------- */
-formEl.addEventListener('submit', async e => {
-  e.preventDefault();
-  const txt = inputEl.value.trim();
-  if (!txt) return;
+  /* --- Recibir mensajes --- */
+  ws.onmessage = e=>{
+    const {payload, source='?', topic} = JSON.parse(e.data);
+    const id = source+'|'+payload;
+    if(id===lastId) return;
+    lastId=id;
 
-  await fetch('/publish', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({message:txt})
+    const time = new Date().toLocaleTimeString().slice(0,5);
+    const div  = document.createElement('div');
+    div.className = 'message '+(source===LOCAL_SOURCE?'sent':'received');
+    div.innerHTML = `${source===LOCAL_SOURCE?'Yo':source}: ${payload}<span class="time">${time}</span>`;
+    msgsEl.appendChild(div);
+
+    /* auto-scroll inteligente */
+    const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15;
+    if(nearBottom){
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+    }else{
+      unread++; badgeEl.textContent=unread; badgeEl.classList.remove('hidden');
+    }
+  };
+
+  /* --- Enviar --- */
+  formEl.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const txt=inputEl.value.trim(); if(!txt) return;
+    await fetch('/publish',{method:'POST',headers:{'Content-Type':'application/json'},
+                            body:JSON.stringify({message:txt})});
+    inputEl.value='';
+    msgsEl.scrollTop=msgsEl.scrollHeight;
   });
-  inputEl.value = '';
-  msgsEl.scrollTop = msgsEl.scrollHeight;
-});
 
-/* ---------- limpiar contador al bajar ---------- */
-msgsEl.addEventListener('scroll', () => {
-  if (msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15) {
-    unread = 0; badgeEl.classList.add('hidden');
-  }
-});
+  /* --- Limpiar contador al bajar --- */
+  msgsEl.addEventListener('scroll',()=>{
+    if(msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15){
+      unread=0; badgeEl.classList.add('hidden');
+    }
+  });
 
-/* ---------- toggle tema ---------- */
-themeBtn.onclick = () => {
-  const el = document.documentElement;
-  el.classList.toggle('dark-mode');
-  localStorage.theme = el.classList.contains('dark-mode') ? 'dark' : 'light';
-};
+  /* --- Botón tema --- */
+  themeBtn.onclick=()=>{
+    const root=document.documentElement;
+    root.classList.toggle('dark-mode');
+    localStorage.theme = root.classList.contains('dark-mode')?'dark':'light';
+  };
+
+});
 </script>
 </body>
 </html>
