@@ -39,18 +39,22 @@ function addBubble({payload, source, time}){
 })();
 
 /* ---------- WebSocket ---------- */
-const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') +
-              location.hostname + ':8000/ws';
-const ws = new WebSocket(wsUrl);
-
-ws.onopen  = () => headerEl.classList.add('online');
-ws.onclose = () => headerEl.classList.remove('online');
+const lastShown = Object.create(null);     // {source: payload}
 
 ws.onmessage = e => {
   const {payload, source='?'} = JSON.parse(e.data);
 
+  /* ── filtro de repetidos consecutivos ───────────────────── */
+  if (lastShown[source] === payload){
+    // ya se mostró este mismo texto justo antes: ignoramos
+    return;
+  }
+  lastShown[source] = payload;             // guarda el último de ese nodo
+  /* ───────────────────────────────────────────────────────── */
+
   addBubble({
-    payload, source,
+    payload,
+    source,
     time: new Date().toLocaleTimeString().slice(0,5)
   });
 
@@ -66,6 +70,7 @@ ws.onmessage = e => {
     badgeEl.classList.remove('hidden');
   }
 };
+
 
 /* ---------- enviar ---------- */
 formEl.addEventListener('submit', async e => {
