@@ -9,10 +9,12 @@
 <body>
 <div class="chat-container">
   <header class="chat-header">
-    <span>LoRa Instant Messenger</span>
+    <div class="header-title">
+      <img src="{{ url_for('static', filename='img/Logo.png') }}" alt="LoRaIM Logo" class="header-logo">
+      <span>LoRa Instant Messenger</span>
+    </div>
     <span>
       <span id="unread" class="badge hidden">0</span>
-      <!-- Se eliminó el botón de cambio de tema -->
     </span>
   </header>
 
@@ -35,7 +37,6 @@ const msgsEl  = document.getElementById('msgs');
 const badgeEl = document.getElementById('unread');
 const formEl  = document.getElementById('sendForm');
 const inputEl = document.getElementById('msgInput');
-// Se eliminó la referencia al botón de tema
 
 let lastId='', unread=0;
 
@@ -79,8 +80,6 @@ msgsEl.addEventListener('scroll',()=>{
     unread=0; badgeEl.classList.add('hidden');
   }
 });
-
-/* Se eliminó el evento para cambiar el tema */
 </script>
 </body>
 </html>
