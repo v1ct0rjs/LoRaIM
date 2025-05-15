@@ -1,15 +1,13 @@
 /*  ────────────────────────────────────────────────────────────
     PALETA DE COLORES
-    Se mantiene un modo claro por defecto y un modo oscuro
-    automático mediante media-query del sistema operativo.
    ──────────────────────────────────────────────────────────── */
 :root{
-  /* tema claro */
-  --bg:       #f4f4f8;  /* fondo general */
-  --box:      #ffffff;  /* tarjeta chat */
-  --fg:       #111;     /* texto principal */
-  --sent:     #4f46e5;  /* burbuja enviada */
-  --recv:     #2f2f38;  /* burbuja recibida */
+  /* Tema claro (predeterminado) */
+  --bg:       #f4f4f8;   /* fondo general */
+  --box:      #ffffff;   /* tarjeta del chat */
+  --fg:       #111;      /* texto principal */
+  --sent:     #4f46e5;   /* burbuja enviada */
+  --recv:     #2f2f38;   /* burbuja recibida */
   --sent-fg:  #fff;
   --recv-fg:  #fff;
   --shadow:   rgba(0,0,0,.18);
@@ -27,75 +25,109 @@
 }
 
 /*  ────────────────────────────────────────────────────────────
-    RESET BÁSICO + CENTRADO VERTICAL/HORIZONTAL
+    RESET BÁSICO + CENTRADO VERTICAL
    ──────────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{
-  height:100%;font-family:"Inter",Arial,Helvetica,sans-serif;
+  height:100%;
+  font-family:"Inter",Arial,Helvetica,sans-serif;
   background:var(--bg);color:var(--fg);
   display:flex;justify-content:center;align-items:center;
 }
 
 /*  ────────────────────────────────────────────────────────────
     TARJETA DEL CHAT
-    Ahora con margen lateral para que “respire” en pantallas grandes
+    • Ocupa casi todo el ancho visible.
+    • Deja solo 8 px de margen a izquierda y derecha.
    ──────────────────────────────────────────────────────────── */
 .chat-container{
-  background:var(--box);
-  width:90%;                 /* ocupa 90 % del ancho visible */
-  max-width:760px;           /* pero nunca excede 760 px */
+  width:calc(100% - 16px);  /* 8 px de margen por lado */
   height:85vh;
-  margin:0 1rem;             /* margen explícito a izquierda y derecha */
-  display:flex;flex-direction:column;
-  border-radius:14px;overflow:hidden;
+  background:var(--box);
+  border-radius:14px;
+  overflow:hidden;
   box-shadow:0 6px 28px var(--shadow);
+  display:flex;flex-direction:column;
 }
 
-/* Cabecera --------------------------------------------------- */
+/*  ───────────────── CABECERA ───────────────── */
 .chat-header{
   background:var(--sent);color:#fff;font-weight:700;
   padding:1rem;text-align:center;font-size:1.25rem;
+  position:relative;
 }
 
-/* Lista de mensajes ------------------------------------------ */
-.messages-container{
-  flex:1;overflow-y:auto;
-  padding:1.2rem;display:flex;flex-direction:column;gap:.7rem;
-}
-.message{
-  max-width:72%;padding:.6rem 1rem;border-radius:22px;
-  font-size:.95rem;word-break:break-word;
-}
-.sent{
-  align-self:flex-end;background:var(--sent);color:var(--sent-fg);
-  border-bottom-right-radius:5px;
-}
-.received{
-  align-self:flex-start;background:var(--recv);color:var(--recv-fg);
-  border-bottom-left-radius:5px;
-}
-.time{
-  display:block;font-size:.65rem;opacity:.75;margin-top:2px;text-align:right;
-}
-
-/* Pie y formulario ------------------------------------------- */
-.chat-footer{padding:.9rem;background:var(--box);}
-.send-form{display:flex;gap:.8rem;}
-.send-form input{
-  flex:1;padding:.65rem;border:none;border-radius:8px;
-  background:var(--input-bg);color:var(--fg);font-size:.9rem;
-}
-.send-form button{
-  padding:.65rem 1.1rem;font-size:1.15rem;border:none;border-radius:8px;
-  background:var(--sent);color:#fff;cursor:pointer;
-}
-.send-form button:hover{background:#6d28d9}
-
-/* Contador de no-leídos -------------------------------------- */
+/* Contador de no-leídos */
 .badge{
   background:var(--sent);color:#fff;border-radius:50%;
   font-size:.65rem;width:1.25rem;height:1.25rem;
   display:inline-flex;align-items:center;justify-content:center;
-  position:absolute;top:.4rem;right:.8rem;
+  position:absolute;top:.6rem;right:1rem;
 }
 .hidden{display:none;}
+
+/*  ───────────────── LISTA DE MENSAJES ───────────────── */
+.messages-container{
+  flex:1;
+  overflow-y:auto;
+  padding:1.2rem;
+  display:flex;flex-direction:column;gap:.7rem;
+}
+
+/* Burbujas */
+.message{
+  max-width:72%;
+  padding:.6rem 1rem;
+  border-radius:22px;
+  font-size:.95rem;
+  word-break:break-word;
+}
+.sent{
+  align-self:flex-end;
+  background:var(--sent);
+  color:var(--sent-fg);
+  border-bottom-right-radius:5px;
+}
+.received{
+  align-self:flex-start;
+  background:var(--recv);
+  color:var(--recv-fg);
+  border-bottom-left-radius:5px;
+}
+.time{
+  display:block;
+  font-size:.65rem;
+  opacity:.75;
+  margin-top:2px;
+  text-align:right;
+}
+
+/*  ───────────────── PIE Y FORMULARIO ───────────────── */
+.chat-footer{
+  padding:.9rem;
+  background:var(--box);
+}
+.send-form{
+  display:flex;gap:.8rem;
+}
+.send-form input{
+  flex:1;
+  padding:.65rem;
+  border:none;
+  border-radius:8px;
+  background:var(--input-bg);
+  color:var(--fg);
+  font-size:.9rem;
+}
+.send-form button{
+  padding:.65rem 1.1rem;
+  font-size:1.15rem;
+  border:none;
+  border-radius:8px;
+  background:var(--sent);
+  color:#fff;
+  cursor:pointer;
+}
+.send-form button:hover{
+  background:#6d28d9;
+}
