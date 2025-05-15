@@ -1,82 +1,89 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>LoRa Instant Messenger</title>
-
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LoRaIM</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="chat-container">
-    <header class="chat-header"><h1>LoRa Instant Messenger</h1></header>
+<div class="chat-container">
+  <header class="chat-header">
+    <span>LoRa Instant Messenger</span>
+    <span>
+      <span id="unread" class="badge hidden">0</span>
+      <span id="themeBtn" class="theme-toggle">🌓</span>
+    </span>
+  </header>
 
-    <!-- zona de mensajes -->
-    <main id="messagesContainer" class="messages-container"></main>
+  <main id="msgs" class="messages-container"></main>
 
-    <!-- caja de envío -->
-    <footer class="chat-footer">
-      <form id="sendForm" class="send-form">
-        <input id="messageInput" type="text" placeholder="Escribe un mensaje…" autocomplete="off" required>
-        <button type="submit">➤</button>
-      </form>
-    </footer>
-  </div>
+  <footer class="chat-footer">
+    <form id="sendForm" class="send-form">
+      <input id="msgInput" type="text" placeholder="Escribe un mensaje…" autocomplete="off" required>
+      <button type="submit">➤</button>
+    </form>
+  </footer>
+</div>
 
 <script>
-  /* conexión WebSocket con FastAPI */
-  const wsProto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-  const wsHost  = location.hostname + ':8000';
-  const ws      = new WebSocket(wsProto + wsHost + '/ws');
+const LOCAL_SOURCE = 'sent';
+const wsUrl = (location.protocol==='https:'?'wss://':'ws://')+location.hostname+':8000/ws';
+const ws    = new WebSocket(wsUrl);
 
-  const LOCAL_SOURCE = 'sent';              // cómo marca el backend nuestros propios envíos
-  const messagesEl   = document.getElementById('messagesContainer');
-  const sendForm     = document.getElementById('sendForm');
-  const msgInput     = document.getElementById('messageInput');
+const msgsEl  = document.getElementById('msgs');
+const badgeEl = document.getElementById('unread');
+const formEl  = document.getElementById('sendForm');
+const inputEl = document.getElementById('msgInput');
+const themeBtn= document.getElementById('themeBtn');
 
-  let lastId = '';                          // para evitar mostrar el último duplicado
+let lastId='', unread=0;
 
-  ws.onmessage = evt => {
-    const data    = JSON.parse(evt.data);   // {topic, payload, source}
-    const text    = data.payload;
-    const source  = data.source ?? 'desconocido';
+/* ---------- Mensajes entrantes ---------- */
+ws.onmessage = e=>{
+  const {payload, source, topic} = JSON.parse(e.data);
+  const sid = source+'|'+payload;
+  if(sid===lastId)return;               // evita duplicado
+  lastId=sid;
 
-    /* evita duplicar el mismo mensaje consecutivo */
-    const msgId = source + '|' + text;
-    if (msgId === lastId) return;
-    lastId = msgId;
+  const time = new Date().toLocaleTimeString().slice(0,5);
+  const div  = document.createElement('div');
+  div.className='message '+(source===LOCAL_SOURCE?'sent':'received');
+  div.innerHTML = `${source===LOCAL_SOURCE?'Yo':source}: ${payload}<span class="time">${time}</span>`;
+  msgsEl.appendChild(div);
 
-    /* construir burbuja */
-    const div = document.createElement('div');
-    div.classList.add('message');
-    div.dataset.topic = data.topic;         // por si quieres filtrarlo en CSS
+  // auto-scroll: sólo si el usuario estaba abajo (~15px)
+  const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15;
+  if(nearBottom){
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }else{
+    unread++;
+    badgeEl.textContent=unread;
+    badgeEl.classList.remove('hidden');
+  }
+};
 
-    if (source === LOCAL_SOURCE) {
-      div.classList.add('sent');
-      div.textContent = 'Yo: ' + text;
-    } else {
-      div.classList.add('received');
-      div.textContent = source + ': ' + text;
-    }
+/* ---------- Enviar mensaje ---------- */
+formEl.addEventListener('submit',async e=>{
+  e.preventDefault();
+  const txt=inputEl.value.trim(); if(!txt)return;
+  await fetch('/publish',{method:'POST',headers:{'Content-Type':'application/json'},
+                          body:JSON.stringify({message:txt})});
+  inputEl.value='';
+  msgsEl.scrollTop=msgsEl.scrollHeight;
+});
 
-    messagesEl.appendChild(div);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-  };
+/* ---------- Auto-reset badge al bajar ---------- */
+msgsEl.addEventListener('scroll',()=>{
+  if(msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15){
+    unread=0; badgeEl.classList.add('hidden');
+  }
+});
 
-  /* enviar mensaje al backend → /publish/ */
-  sendForm.addEventListener('submit', async e => {
-    e.preventDefault();
-    const text = msgInput.value.trim();
-    if (!text) return;
-
-    await fetch('/publish', {
-      method : 'POST',
-      headers: {'Content-Type':'application/json'},
-      body   : JSON.stringify({message: text})
-    });
-    msgInput.value = '';
-  });
+/* ---------- Tema claro/oscuro ---------- */
+themeBtn.onclick=()=>{
+  document.documentElement.classList.toggle('dark-mode');
+};
 </script>
 </body>
 </html>
