@@ -8,13 +8,13 @@
 </head>
 <body>
 <div class="chat-container">
+  <!-- Logo fuera del header, en la parte superior negra -->
+  <div class="logo-container">
+    <img src="{{ url_for('static', filename='img/Logo.png') }}" alt="LoRaIM Logo" class="header-logo">
+  </div>
+
   <header class="chat-header">
-    <div class="header-title">
-      <div class="logo-container">
-        <img src="{{ url_for('static', filename='img/Logo.png') }}" alt="LoRaIM Logo" class="header-logo">
-      </div>
-      <span>LoRa Instant Messenger</span>
-    </div>
+    <span>LoRa Instant Messenger</span>
     <span>
       <span id="unread" class="badge hidden">0</span>
     </span>

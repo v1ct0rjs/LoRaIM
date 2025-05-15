@@ -1,10 +1,11 @@
 :root{
-  --bg: #f4f4f8;
-  --fg: #111;
-  --sent:   #4f46e5;
-  --recv:   #e5e7eb;
-  --sent-fg:#fff;
-  --recv-fg:#111;
+  --bg: #1e1e22;  /* Fondo negro para coincidir con la interfaz */
+  --fg: #f4f4f8;
+  --header: #5e54e7;
+  --sent: #4f46e5;
+  --recv: #2e2e32;
+  --sent-fg: #fff;
+  --recv-fg: #e5e7eb;
 }
 
 * {
@@ -15,59 +16,51 @@
 
 body {
   background: var(--bg);
-  font-family: var(--font);
-  color: var(--text);
+  font-family: 'Inter', Arial, sans-serif;
+  color: var(--fg);
   height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Añadimos márgenes superior e inferior */
-  padding: 2rem 0;
+  padding: 0;
 }
 
 .chat-container {
-  background: var(--box);
+  position: relative;
+  background: var(--bg);
   width: 100%;
-  /* Aumentamos el ancho máximo para reducir márgenes laterales */
-  max-width: 90%;
-  /* Ajustamos la altura para adaptarse al mayor margen superior/inferior */
-  height: 90vh;
+  max-width: 100%;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
 }
 
-.chat-header {
-  background: linear-gradient(to right, #3b308f, #5e54e7);
-  color: white;
-  text-align: center;
-  padding: 0.8rem 1rem;
-  font-size: 1.3rem;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-}
-
-.header-title {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-}
-
+/* Logo flotante en la parte superior */
 .logo-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.15);
+  position: absolute;
+  top: 10px;
+  left: 60px;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.7);
   border-radius: 8px;
-  padding: 0.2rem 0.5rem;
+  padding: 5px 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .header-logo {
-  height: 2rem;
+  height: 2.5rem;
   width: auto;
-  /* Añadir un ligero brillo alrededor del logo */
-  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.5));
+}
+
+.chat-header {
+  background: var(--header);
+  color: white;
+  text-align: center;
+  padding: 1.2rem 1rem 0.8rem;
+  font-size: 1.3rem;
+  font-weight: bold;
+  margin-top: 15px;
 }
 
 .messages-container {
@@ -77,6 +70,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  background: var(--bg);
 }
 
 .message {
@@ -92,14 +86,14 @@ body {
 .sent {
   background-color: var(--sent);
   align-self: flex-end;
-  color: white;
+  color: var(--sent-fg);
   border-bottom-right-radius: 0;
 }
 
 .received {
-  background-color: var(--received);
+  background-color: var(--recv);
   align-self: flex-start;
-  color: white;
+  color: var(--recv-fg);
   border-bottom-left-radius: 0;
 }
 
@@ -137,33 +131,45 @@ body {
   background: #6d28d9;
 }
 
-@media (prefers-color-scheme:dark){
-  :root{
-    --bg:#1e1e22;
-    --fg:#e5e7eb;
-    --sent:#6366f1;
-    --recv:#2e2e32;
-    --sent-fg:#fff;
-    --recv-fg:#e5e7eb;
-  }
+.time {
+  display: block;
+  font-size: 0.65rem;
+  opacity: 0.7;
+  margin-top: 2px;
+  text-align: right;
+}
+
+.badge {
+  background: var(--sent);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.4rem;
+}
+
+.hidden {
+  display: none;
 }
 
 /* Versión minificada para compatibilidad */
-html,body{margin:0;height:100%;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--fg);}
-body{padding:2rem 0;display:flex;align-items:center;justify-content:center;}
-.chat-container{display:flex;flex-direction:column;height:100%;width:100%;max-width:90%;height:90vh;border-radius:12px;overflow:hidden;box-shadow:0 0 20px rgba(0,0,0,0.6);}
-.chat-header{background:linear-gradient(to right,#3b308f,#5e54e7);color:white;padding:0.8rem 1rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 5px rgba(0,0,0,0.2);}
-.header-title{display:flex;align-items:center;gap:0.8rem;}
-.logo-container{display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.15);border-radius:8px;padding:0.2rem 0.5rem;}
-.header-logo{height:2rem;width:auto;filter:drop-shadow(0 0 3px rgba(255,255,255,0.5));}
-.messages-container{flex:1;overflow-y:auto;padding:.5rem 1rem;display:flex;flex-direction:column;gap:.35rem;}
-.message{max-width:75%;padding:.4rem .6rem;border-radius:.8rem;font-size:.9rem;word-wrap:break-word;}
-.sent{align-self:flex-end;background:var(--sent);color:var(--sent-fg);}
-.received{align-self:flex-start;background:var(--recv);color:var(--recv-fg);}
+html,body{margin:0;height:100%;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--fg);}
+.chat-container{position:relative;width:100%;max-width:100%;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+.logo-container{position:absolute;top:10px;left:60px;z-index:10;background:rgba(0,0,0,0.7);border-radius:8px;padding:5px 10px;box-shadow:0 2px 4px rgba(0,0,0,0.3);}
+.header-logo{height:2.5rem;width:auto;}
+.chat-header{background:var(--header);color:white;text-align:center;padding:1.2rem 1rem 0.8rem;font-size:1.3rem;font-weight:bold;margin-top:15px;}
+.messages-container{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.5rem;background:var(--bg);}
+.message{max-width:75%;padding:.6rem 1rem;border-radius:.8rem;font-size:.95rem;word-wrap:break-word;}
+.sent{align-self:flex-end;background:var(--sent);color:var(--sent-fg);border-bottom-right-radius:0;}
+.received{align-self:flex-start;background:var(--recv);color:var(--recv-fg);border-bottom-left-radius:0;}
 .time{display:block;font-size:.65rem;opacity:.7;margin-top:2px;text-align:right;}
-.chat-footer{padding:.4rem;border-top:1px solid #ccc;background:var(--bg);}
-.send-form{display:flex;gap:.4rem;}
-.send-form input{flex:1;padding:.4rem;border:1px solid #bbb;border-radius:.4rem;font-size:.9rem;}
-.send-form button{padding:.4rem .8rem;font-size:1rem;background:var(--sent);color:#fff;border:none;border-radius:.4rem;cursor:pointer;}
+.chat-footer{padding:.75rem;background:#111;border-top:1px solid #222;}
+.send-form{display:flex;gap:.5rem;}
+.send-form input{flex:1;padding:.6rem 1rem;border:none;border-radius:8px;background:#222;color:white;}
+.send-form button{padding:0 1.2rem;font-size:1.1rem;background:var(--sent);color:#fff;border:none;border-radius:8px;cursor:pointer;}
 .badge{background:var(--sent);color:#fff;border-radius:50%;font-size:.65rem;width:1.25rem;height:1.25rem;display:inline-flex;align-items:center;justify-content:center;margin-left:.4rem;}
 .hidden{display:none;}
