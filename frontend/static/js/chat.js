@@ -1,5 +1,5 @@
 const LOCAL_SOURCE = 'sent';
-const PAGE = 50;                       // carga inicial
+const PAGE         = 50;   // mensajes iniciales
 
 /* ---------- DOM ---------- */
 const msgsEl   = document.getElementById('msgs');
@@ -9,7 +9,6 @@ const inputEl  = document.getElementById('msgInput');
 const headerEl = document.querySelector('.chat-header');
 
 /* ---------- estado ---------- */
-const seenIds = new Set();
 let unread = 0;
 
 /* ---------- util ---------- */
@@ -26,22 +25,16 @@ function addBubble({payload, source, time}){
   msgsEl.appendChild(wrap);
 }
 
-/* ---------- carga inicial (últimos PAGE) ---------- */
+/* ---------- carga inicial ---------- */
 (async () => {
   const res = await fetch(`/messages?limit=${PAGE}`);
   const {messages} = await res.json();
-  messages.forEach(m => {
-    const id = m.source + '|' + m.payload;
-    if (!seenIds.has(id)){
-      addBubble({
-        payload: m.payload,
-        source : m.source,
-        time   : new Date().toLocaleTimeString().slice(0,5)
-      });
-      seenIds.add(id);
-    }
-  });
-  msgsEl.scrollTop = msgsEl.scrollHeight;      // al fondo
+  messages.forEach(m => addBubble({
+    payload: m.payload,
+    source : m.source,
+    time   : new Date().toLocaleTimeString().slice(0,5)
+  }));
+  msgsEl.scrollTop = msgsEl.scrollHeight; // al fondo
   inputEl.focus();
 })();
 
@@ -55,22 +48,18 @@ ws.onclose = () => headerEl.classList.remove('online');
 
 ws.onmessage = e => {
   const {payload, source='?'} = JSON.parse(e.data);
-  const id = source + '|' + payload;
-  if (seenIds.has(id)) return;
-  seenIds.add(id);
 
   addBubble({
     payload, source,
     time: new Date().toLocaleTimeString().slice(0,5)
   });
 
-  /* auto-scroll y badge */
   const wasBottom =
         msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 25;
+
   if (wasBottom){
     msgsEl.scrollTop = msgsEl.scrollHeight;
-    unread = 0;
-    badgeEl.classList.add('hidden');
+    unread = 0; badgeEl.classList.add('hidden');
   }else{
     unread++;
     badgeEl.textContent = unread;
@@ -92,12 +81,12 @@ formEl.addEventListener('submit', async e => {
   msgsEl.scrollTop = msgsEl.scrollHeight;
 });
 
-/* atajo Ctrl+Enter */
+/* atajo Ctrl + Enter */
 formEl.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.ctrlKey) formEl.requestSubmit();
 });
 
-/* ---------- badge reset al llegar al fondo ---------- */
+/* ---------- badge reset ---------- */
 msgsEl.addEventListener('scroll', () => {
   if (msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 20){
     unread = 0;
