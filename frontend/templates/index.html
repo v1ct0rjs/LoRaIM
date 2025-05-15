@@ -12,7 +12,7 @@
     <span>LoRa Instant Messenger</span>
     <span>
       <span id="unread" class="badge hidden">0</span>
-      <span id="themeBtn" class="theme-toggle">🌓</span>
+      <!-- Se eliminó el botón de cambio de tema -->
     </span>
   </header>
 
@@ -35,7 +35,7 @@ const msgsEl  = document.getElementById('msgs');
 const badgeEl = document.getElementById('unread');
 const formEl  = document.getElementById('sendForm');
 const inputEl = document.getElementById('msgInput');
-const themeBtn= document.getElementById('themeBtn');
+// Se eliminó la referencia al botón de tema
 
 let lastId='', unread=0;
 
@@ -80,10 +80,7 @@ msgsEl.addEventListener('scroll',()=>{
   }
 });
 
-/* ---------- Tema claro/oscuro ---------- */
-themeBtn.onclick=()=>{
-  document.documentElement.classList.toggle('dark-mode');
-};
+/* Se eliminó el evento para cambiar el tema */
 </script>
 </body>
 </html>
