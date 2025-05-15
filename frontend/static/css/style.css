@@ -1,139 +1,105 @@
+/* ───── PALETA base ───────────────────────────────────────────── */
 :root{
-  --bg: #f4f4f8;
-  --fg: #111;
-  --sent:   #4f46e5;
-  --recv:   #e5e7eb;
-  --sent-fg:#fff;
-  --recv-fg:#111;
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-body {
-  background: var(--bg);
-  font-family: var(--font);
-  color: var(--text);
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.chat-container {
-  background: var(--box);
-  width: 100%;
-  max-width: 600px;
-  height: 80vh;
-  display: flex;
-  flex-direction: column;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
-}
-
-.chat-header {
-  background: var(--sent);
-  color: white;
-  text-align: center;
-  padding: 1rem;
-  font-size: 1.3rem;
-}
-
-.messages-container {
-  flex: 1;
-  padding: 1rem;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.message {
-  max-width: 70%;
-  padding: 0.6rem 1rem;
-  border-radius: 20px;
-  word-break: break-word;
-  font-size: 0.95rem;
-  display: block;
-  width: fit-content;
-}
-
-
-.sent {
-  background-color: var(--sent);
-  align-self: flex-end;
-  color: white;
-  border-bottom-right-radius: 0;
-}
-
-.received {
-  background-color: var(--received);
-  align-self: flex-start;
-  color: white;
-  border-bottom-left-radius: 0;
-}
-
-.chat-footer {
-  padding: 0.75rem;
-  background: #111;
-  border-top: 1px solid #222;
-}
-
-.send-form {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.send-form input {
-  flex: 1;
-  padding: 0.6rem 1rem;
-  border: none;
-  border-radius: 8px;
-  background: #222;
-  color: white;
-}
-
-.send-form button {
-  background: var(--sent);
-  border: none;
-  color: white;
-  padding: 0 1.2rem;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  cursor: pointer;
-}
-
-.send-form button:hover {
-  background: #6d28d9;
+  /* tema claro (default) */
+  --bg:        #f4f4f8;   /* fondo página */
+  --box:       #ffffff;   /* tarjeta chat */
+  --fg:        #111;      /* texto principal */
+  --sent:      #4f46e5;   /* burbuja enviada */
+  --recv:      #2f2f38;   /* burbuja recibida */
+  --sent-fg:   #fff;
+  --recv-fg:   #fff;
+  --shadow:    rgba(0,0,0,.2);
+  --input-bg:  #eee;
 }
 
 @media (prefers-color-scheme:dark){
   :root{
-    --bg:#1e1e22;
-    --fg:#e5e7eb;
-    --sent:#6366f1;
-    --recv:#2e2e32;
-    --sent-fg:#fff;
-    --recv-fg:#e5e7eb;
+    --bg:#1e1e22; --box:#27272f; --fg:#e5e7eb;
+    --sent:#6366f1; --recv:#3a3a46;
+    --sent-fg:#fff; --recv-fg:#e5e7eb;
+    --shadow:rgba(0,0,0,.5);
+    --input-bg:#1f1f24;
   }
 }
-html,body{margin:0;height:100%;font-family:Inter,Arial,Helvetica,sans-serif;
-  background:var(--bg);color:var(--fg);}
-.chat-container{display:flex;flex-direction:column;height:100%;}
-.chat-header{padding:.5rem 1rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;}
-.messages-container{flex:1;overflow-y:auto;padding:.5rem 1rem;display:flex;flex-direction:column;gap:.35rem;}
-.message{max-width:75%;padding:.4rem .6rem;border-radius:.8rem;font-size:.9rem;word-wrap:break-word;}
-.sent{align-self:flex-end;background:var(--sent);color:var(--sent-fg);}
-.received{align-self:flex-start;background:var(--recv);color:var(--recv-fg);}
-.time{display:block;font-size:.65rem;opacity:.7;margin-top:2px;text-align:right;}
-.chat-footer{padding:.4rem;border-top:1px solid #ccc;background:var(--bg);}
-.send-form{display:flex;gap:.4rem;}
-.send-form input{flex:1;padding:.4rem;border:1px solid #bbb;border-radius:.4rem;font-size:.9rem;}
-.send-form button{padding:.4rem .8rem;font-size:1rem;background:var(--sent);color:#fff;border:none;border-radius:.4rem;cursor:pointer;}
-.theme-toggle{cursor:pointer;font-size:1.1rem;user-select:none;}
-.badge{background:var(--sent);color:#fff;border-radius:50%;font-size:.65rem;width:1.25rem;height:1.25rem;display:inline-flex;align-items:center;justify-content:center;margin-left:.4rem;}
+
+/* clase que añade/elimina el botón 🌓  */
+.dark-mode{
+  --bg:#1e1e22; --box:#27272f; --fg:#e5e7eb;
+  --sent:#6366f1; --recv:#3a3a46;
+  --sent-fg:#fff; --recv-fg:#e5e7eb;
+  --shadow:rgba(0,0,0,.5);
+  --input-bg:#1f1f24;
+}
+
+/* ───── RESETEO y TIPOGRAFÍA ─────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{
+  height:100%;font-family:"Inter",Arial,Helvetica,sans-serif;
+  background:var(--bg);color:var(--fg);
+  display:flex;justify-content:center;align-items:center;
+}
+
+/* ───── TARJETA chat ─────────────────────────────────────────── */
+.chat-container{
+  background:var(--box);
+  width:100%;max-width:600px;height:80vh;
+  display:flex;flex-direction:column;
+  border-radius:12px;overflow:hidden;
+  box-shadow:0 4px 24px var(--shadow);
+}
+
+/* Cabecera */
+.chat-header{
+  background:var(--sent);
+  color:#fff;text-align:center;padding:1rem;font-size:1.25rem;
+  display:flex;justify-content:space-between;align-items:center;
+}
+
+/* ───── Lista de mensajes ────────────────────────────────────── */
+.messages-container{
+  flex:1;overflow-y:auto;
+  padding:1rem;display:flex;flex-direction:column;gap:.6rem;
+}
+
+.message{
+  max-width:70%;padding:.55rem 1rem;border-radius:20px;
+  font-size:.95rem;word-break:break-word;position:relative;
+}
+
+.sent{
+  align-self:flex-end;background:var(--sent);color:var(--sent-fg);
+  border-bottom-right-radius:4px;
+}
+.received{
+  align-self:flex-start;background:var(--recv);color:var(--recv-fg);
+  border-bottom-left-radius:4px;
+}
+
+.time{
+  display:block;font-size:.65rem;opacity:.7;margin-top:2px;text-align:right;
+}
+
+/* ───── Pie / formulario ─────────────────────────────────────── */
+.chat-footer{padding:.75rem;background:var(--box);}
+.send-form{display:flex;gap:.6rem;}
+
+.send-form input{
+  flex:1;padding:.6rem 1rem;border:none;border-radius:8px;
+  background:var(--input-bg);color:var(--fg);font-size:.9rem;
+}
+
+.send-form button{
+  background:var(--sent);color:#fff;border:none;border-radius:8px;
+  padding:0 1.2rem;font-size:1.1rem;cursor:pointer;
+}
+.send-form button:hover{background:#6d28d9}
+
+/* ───── Botón tema & badge ───────────────────────────────────── */
+.theme-toggle{cursor:pointer;font-size:1.2rem;user-select:none;}
+.badge{
+  background:var(--sent);color:#fff;border-radius:50%;
+  font-size:.65rem;width:1.25rem;height:1.25rem;
+  display:inline-flex;align-items:center;justify-content:center;
+  margin-right:.6rem;
+}
 .hidden{display:none;}
