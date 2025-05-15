@@ -21,16 +21,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Añadimos márgenes superior e inferior */
   padding: 2rem 0;
 }
 
 .chat-container {
   background: var(--box);
   width: 100%;
-  /* Aumentamos el ancho máximo para reducir márgenes laterales */
   max-width: 90%;
-  /* Ajustamos la altura para adaptarse al mayor margen superior/inferior */
   height: 90vh;
   display: flex;
   flex-direction: column;
@@ -58,7 +55,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000000; /* Fondo negro sólido en lugar de semitransparente */
+  background: #000000;
   border-radius: 8px;
   padding: 0.2rem 0.5rem;
 }
@@ -66,7 +63,6 @@ body {
 .header-logo {
   height: 2rem;
   width: auto;
-  /* Eliminado el efecto de drop-shadow */
 }
 
 .messages-container {
@@ -146,6 +142,12 @@ body {
     --recv-fg:#e5e7eb;
   }
 }
+
+.chat-header.online{
+  filter:brightness(1.15);
+  transition:filter .25s;
+}
+
 
 /* Versión minificada para compatibilidad */
 html,body{margin:0;height:100%;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--fg);}
