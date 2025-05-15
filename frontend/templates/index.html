@@ -1,87 +1,35 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LoRaIM</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LoRaIM</title>
+
+  <!-- fuente + estilos -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+  <!-- ✅ ①-② carga JS externo con defer (no bloquea el parser) -->
+  <script defer src="{{ url_for('static', filename='js/chat.js') }}"></script>
 </head>
 <body>
-<div class="chat-container">
-  <header class="chat-header">
-    <div class="header-title">
-      <div class="logo-container">
-        <img src="{{ url_for('static', filename='img/Logo.png') }}" alt="LoRaIM Logo" class="header-logo">
-      </div>
-      <span>LoRa Instant Messenger</span>
-    </div>
-    <span>
+
+  <!-- tarjeta principal del chat -->
+  <div class="chat-container">
+    <header class="chat-header">
+      LoRa Instant Messenger
       <span id="unread" class="badge hidden">0</span>
-    </span>
-  </header>
+    </header>
 
-  <main id="msgs" class="messages-container"></main>
+    <main id="msgs" class="messages-container"></main>
 
-  <footer class="chat-footer">
-    <form id="sendForm" class="send-form">
-      <input id="msgInput" type="text" placeholder="Escribe un mensaje…" autocomplete="off" required>
-      <button type="submit">➤</button>
-    </form>
-  </footer>
-</div>
+    <footer class="chat-footer">
+      <form id="sendForm" class="send-form" autocomplete="off">
+        <input id="msgInput" type="text" placeholder="Escribe un mensaje…" required>
+        <button type="submit">➤</button>
+      </form>
+    </footer>
+  </div>
 
-<script>
-const LOCAL_SOURCE = 'sent';
-const wsUrl = (location.protocol==='https:'?'wss://':'ws://')+location.hostname+':8000/ws';
-const ws    = new WebSocket(wsUrl);
-
-const msgsEl  = document.getElementById('msgs');
-const badgeEl = document.getElementById('unread');
-const formEl  = document.getElementById('sendForm');
-const inputEl = document.getElementById('msgInput');
-
-let lastId='', unread=0;
-
-/* ---------- Mensajes entrantes ---------- */
-ws.onmessage = e=>{
-  const {payload, source, topic} = JSON.parse(e.data);
-  const sid = source+'|'+payload;
-  if(sid===lastId)return;               // evita duplicado
-  lastId=sid;
-
-  const time = new Date().toLocaleTimeString().slice(0,5);
-  const div  = document.createElement('div');
-  div.className='message '+(source===LOCAL_SOURCE?'sent':'received');
-  div.innerHTML = `${source===LOCAL_SOURCE?'Yo':source}: ${payload}<span class="time">${time}</span>`;
-  msgsEl.appendChild(div);
-
-  // auto-scroll: sólo si el usuario estaba abajo (~15px)
-  const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15;
-  if(nearBottom){
-    msgsEl.scrollTop = msgsEl.scrollHeight;
-  }else{
-    unread++;
-    badgeEl.textContent=unread;
-    badgeEl.classList.remove('hidden');
-  }
-};
-
-/* ---------- Enviar mensaje ---------- */
-formEl.addEventListener('submit',async e=>{
-  e.preventDefault();
-  const txt=inputEl.value.trim(); if(!txt)return;
-  await fetch('/publish',{method:'POST',headers:{'Content-Type':'application/json'},
-                          body:JSON.stringify({message:txt})});
-  inputEl.value='';
-  msgsEl.scrollTop=msgsEl.scrollHeight;
-});
-
-/* ---------- Auto-reset badge al bajar ---------- */
-msgsEl.addEventListener('scroll',()=>{
-  if(msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 15){
-    unread=0; badgeEl.classList.add('hidden');
-  }
-});
-</script>
 </body>
 </html>
