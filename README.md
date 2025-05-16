@@ -86,7 +86,7 @@ docker-compose up --build
 Open your browser at:  
 👉 `http://localhost:5000`
 
-## 📖 Protocol
+## Protocol
 
 Messages are formatted as JSON:
 ```json
