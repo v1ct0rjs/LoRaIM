@@ -47,7 +47,7 @@ Interfaz Visual (OLED):
   • Mensajes enviados y recibidos por LoRa claramente diferenciados.
 
 Personalización Avanzada:
--------------------------
+-----------------------
 - Parámetros ajustables directamente desde `.env`:
   • Frecuencia, potencia, ancho de banda, spreading factor (SF), etc.
   • Brillo de la pantalla OLED.
@@ -303,8 +303,7 @@ def main():
 
     cid = ubinascii.hexlify(mac).decode()
     mqttc = MQTTClient(cid, MQTT_HOST, MQTT_PORT, user=MQTT_USER, password=MQTT_PASS, keepalive=30)
-    lw = ujson.dumps({"from": NODE_NAME, "message": "offline"})
-    mqttc.set_last_will(MQTT_TOPIC_UP, lw, True, 1)
+    # Last Will message removed to prevent reconnection issues
     mqttc.set_callback(make_downlink_cb(lora))
 
     backoff = 2000      # ms
@@ -319,6 +318,12 @@ def main():
                 oled_log("MQTT OK")
                 mqtt_ok = True
                 backoff = 2000
+                mqttc.publish(MQTT_TOPIC_UP, ujson.dumps({"from": NODE_NAME, "message": "online"}), True, MQTT_QOS)
+                if not mqtt_ok:
+                    try:
+                        mqttc.disconnect()  # <-- evita falso 'offline'
+                    except OSError:
+                        pass
                 # vaciar pendientes
                 while pending and mqtt_ok:
                     pkt = pend_popleft()
