@@ -1,5 +1,6 @@
 const LOCAL_SOURCE = "sent"
 const PAGE = 50 // carga inicial
+const MAX_CHARS = 150 // máximo de caracteres permitidos
 
 /* ---------- DOM ---------- */
 const msgsEl = document.getElementById("msgs")
@@ -7,10 +8,31 @@ const badgeEl = document.getElementById("unread")
 const formEl = document.getElementById("sendForm")
 const inputEl = document.getElementById("msgInput")
 const headerEl = document.querySelector(".chat-header")
+const charCountEl = document.createElement("span") // Contador de caracteres
 
 /* ---------- estado ---------- */
 let lastMessage = { source: "", payload: "" }
 let unread = 0
+
+/* ---------- Configuración del contador de caracteres ---------- */
+charCountEl.className = "char-count"
+charCountEl.textContent = `0/${MAX_CHARS}`
+formEl.insertBefore(charCountEl, formEl.querySelector("button"))
+
+// Estilo para el contador de caracteres
+const style = document.createElement("style")
+style.textContent = `
+  .char-count {
+    font-size: 0.8rem;
+    color: #aaa;
+    margin-right: 0.5rem;
+    align-self: center;
+  }
+  .char-count.limit {
+    color: #e53e3e;
+  }
+`
+document.head.appendChild(style)
 
 /* ---------- util ---------- */
 function addBubble({ payload, source, time }) {
@@ -24,6 +46,14 @@ function addBubble({ payload, source, time }) {
   wrap.appendChild(ts)
 
   msgsEl.appendChild(wrap)
+
+  // Siempre hacer scroll al último mensaje
+  scrollToBottom()
+}
+
+// Función para hacer scroll al último mensaje
+function scrollToBottom() {
+  msgsEl.scrollTop = msgsEl.scrollHeight
 }
 /* ---------- carga inicial (últimos PAGE) ---------- */
 ;(async () => {
@@ -53,7 +83,7 @@ function addBubble({ payload, source, time }) {
     lastMessage = { source: lastMsg.source, payload: lastMsg.payload }
   }
 
-  msgsEl.scrollTop = msgsEl.scrollHeight // al fondo
+  scrollToBottom() // Asegurar scroll al fondo
   inputEl.focus()
 })()
 
@@ -81,7 +111,7 @@ ws.onmessage = (e) => {
     /* auto-scroll y badge */
     const wasBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 25
     if (wasBottom) {
-      msgsEl.scrollTop = msgsEl.scrollHeight
+      scrollToBottom()
       unread = 0
       badgeEl.classList.add("hidden")
     } else {
@@ -96,14 +126,48 @@ ws.onmessage = (e) => {
 formEl.addEventListener("submit", async (e) => {
   e.preventDefault()
   const txt = inputEl.value.trim()
-  if (!txt) return
-  await fetch("/publish", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: txt }),
+  if (!txt || txt.length > MAX_CHARS) return
+
+  // Mostrar inmediatamente el mensaje enviado en el chat
+  const time = new Date().toLocaleTimeString().slice(0, 5)
+  addBubble({
+    payload: txt,
+    source: LOCAL_SOURCE,
+    time: time,
   })
+
+  // Actualizar el último mensaje para evitar duplicados
+  lastMessage = { source: LOCAL_SOURCE, payload: txt }
+
+  // Enviar al servidor
+  try {
+    await fetch("/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: txt }),
+    })
+  } catch (error) {
+    console.error("Error al enviar mensaje:", error)
+  }
+
   inputEl.value = ""
-  msgsEl.scrollTop = msgsEl.scrollHeight
+  updateCharCount(0)
+  scrollToBottom()
+})
+
+/* ---------- Contador de caracteres ---------- */
+function updateCharCount(length) {
+  charCountEl.textContent = `${length}/${MAX_CHARS}`
+  if (length > MAX_CHARS) {
+    charCountEl.classList.add("limit")
+  } else {
+    charCountEl.classList.remove("limit")
+  }
+}
+
+inputEl.addEventListener("input", () => {
+  const length = inputEl.value.length
+  updateCharCount(length)
 })
 
 /* atajo Ctrl+Enter */
