@@ -12,10 +12,28 @@ const headerEl = document.querySelector(".chat-header")
 const charCountEl = document.createElement("span") // Contador de caracteres
 const scrollDownBtn = document.createElement("button") // Botón para ir al final
 
+// Crear contenedor para acciones del header
+const headerActions = document.createElement("div")
+headerActions.className = "header-actions"
+headerEl.appendChild(headerActions)
+
+// Crear botón de cambio de tema
+const themeToggle = document.createElement("button")
+themeToggle.className = "theme-toggle"
+themeToggle.innerHTML = "🌓"
+themeToggle.title = "Cambiar tema"
+headerActions.appendChild(themeToggle)
+
+// Mover el badge al contenedor de acciones
+if (badgeEl) {
+  headerActions.appendChild(badgeEl)
+}
+
 /* ---------- estado ---------- */
 let lastMessage = { source: "", payload: "" }
 let unread = 0
 let isNearBottom = true
+let isDarkTheme = false
 
 /* ---------- Configuración del contador de caracteres ---------- */
 charCountEl.className = "char-count"
@@ -27,6 +45,50 @@ scrollDownBtn.className = "scroll-down-btn hidden"
 scrollDownBtn.innerHTML = "↓"
 scrollDownBtn.title = "Ir al último mensaje"
 document.querySelector(".chat-container").appendChild(scrollDownBtn)
+
+/* ---------- Funciones de tema ---------- */
+// Cargar tema guardado
+function loadSavedTheme() {
+  const savedTheme = localStorage.getItem("theme")
+  if (savedTheme === "dark") {
+    setDarkTheme()
+  } else {
+    setLightTheme()
+  }
+}
+
+// Establecer tema oscuro
+function setDarkTheme() {
+  document.documentElement.setAttribute("data-theme", "dark")
+  themeToggle.innerHTML = "☀️"
+  themeToggle.title = "Cambiar a tema claro"
+  isDarkTheme = true
+  localStorage.setItem("theme", "dark")
+}
+
+// Establecer tema claro
+function setLightTheme() {
+  document.documentElement.removeAttribute("data-theme")
+  themeToggle.innerHTML = "🌙"
+  themeToggle.title = "Cambiar a tema oscuro"
+  isDarkTheme = false
+  localStorage.setItem("theme", "light")
+}
+
+// Alternar tema
+function toggleTheme() {
+  if (isDarkTheme) {
+    setLightTheme()
+  } else {
+    setDarkTheme()
+  }
+}
+
+// Evento para cambiar tema
+themeToggle.addEventListener("click", toggleTheme)
+
+// Cargar tema al iniciar
+loadSavedTheme()
 
 /* ---------- util ---------- */
 function addBubble({ payload, source, time }) {

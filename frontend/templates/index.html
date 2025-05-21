@@ -14,9 +14,11 @@
   <div class="chat-container">
     <header class="chat-header">
       <div class="header-title">
-        <div class="logo-container">
-          <img src="{{ url_for('static', filename='img/logo.png') }}" alt="LoRaIM Logo" class="header-logo" />
-        </div>
+        <a href="https://github.com/v1ct0rjs/LoRaIM/" target="_blank" class="logo-link" title="Ver código en GitHub">
+          <div class="logo-container">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="LoRaIM Logo" class="header-logo" />
+          </div>
+        </a>
         <span>LoRa Instant Messenger</span>
       </div>
       <span id="unread" class="badge hidden">0</span>
@@ -36,4 +38,3 @@
   <script defer src="{{ url_for('static', filename='js/chat.js') }}"></script>
 </body>
 </html>
-
