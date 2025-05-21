@@ -1,6 +1,7 @@
 const LOCAL_SOURCE = "sent"
 const PAGE = 50 // carga inicial
 const MAX_CHARS = 150 // máximo de caracteres permitidos
+const SCROLL_THRESHOLD = 100 // píxeles desde el fondo para considerar "cerca del final"
 
 /* ---------- DOM ---------- */
 const msgsEl = document.getElementById("msgs")
@@ -9,17 +10,25 @@ const formEl = document.getElementById("sendForm")
 const inputEl = document.getElementById("msgInput")
 const headerEl = document.querySelector(".chat-header")
 const charCountEl = document.createElement("span") // Contador de caracteres
+const scrollDownBtn = document.createElement("button") // Botón para ir al final
 
 /* ---------- estado ---------- */
 let lastMessage = { source: "", payload: "" }
 let unread = 0
+let isNearBottom = true
 
 /* ---------- Configuración del contador de caracteres ---------- */
 charCountEl.className = "char-count"
 charCountEl.textContent = `0/${MAX_CHARS}`
 formEl.insertBefore(charCountEl, formEl.querySelector("button"))
 
-// Estilo para el contador de caracteres
+/* ---------- Configuración del botón de scroll ---------- */
+scrollDownBtn.className = "scroll-down-btn hidden"
+scrollDownBtn.innerHTML = "↓"
+scrollDownBtn.title = "Ir al último mensaje"
+document.querySelector(".chat-container").appendChild(scrollDownBtn)
+
+// Estilo para los nuevos elementos
 const style = document.createElement("style")
 style.textContent = `
   .char-count {
@@ -30,6 +39,50 @@ style.textContent = `
   }
   .char-count.limit {
     color: #e53e3e;
+  }
+  .scroll-down-btn {
+    position: absolute;
+    bottom: 70px;
+    right: 20px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--sent);
+    color: white;
+    border: none;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    z-index: 10;
+    transition: all 0.2s;
+  }
+  .scroll-down-btn:hover {
+    transform: scale(1.1);
+  }
+  .scroll-down-btn.hidden {
+    display: none;
+  }
+  .badge-container {
+    position: relative;
+    display: inline-flex;
+  }
+  .badge {
+    background: var(--sent);
+    color: white;
+    border-radius: 50%;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .badge.hidden {
+    display: none;
   }
 `
 document.head.appendChild(style)
@@ -47,13 +100,34 @@ function addBubble({ payload, source, time }) {
 
   msgsEl.appendChild(wrap)
 
-  // Siempre hacer scroll al último mensaje
-  scrollToBottom()
+  // Hacer scroll solo si estamos cerca del final
+  if (isNearBottom) {
+    scrollToBottom()
+  } else {
+    // Mostrar botón de scroll y actualizar contador
+    scrollDownBtn.classList.remove("hidden")
+  }
 }
 
 // Función para hacer scroll al último mensaje
 function scrollToBottom() {
   msgsEl.scrollTop = msgsEl.scrollHeight
+  scrollDownBtn.classList.add("hidden")
+  unread = 0
+  badgeEl.classList.add("hidden")
+  isNearBottom = true
+}
+
+// Función para verificar si estamos cerca del final
+function checkIfNearBottom() {
+  isNearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < SCROLL_THRESHOLD
+  if (isNearBottom) {
+    scrollDownBtn.classList.add("hidden")
+    unread = 0
+    badgeEl.classList.add("hidden")
+  } else {
+    scrollDownBtn.classList.remove("hidden")
+  }
 }
 /* ---------- carga inicial (últimos PAGE) ---------- */
 ;(async () => {
@@ -108,13 +182,8 @@ ws.onmessage = (e) => {
     // Actualizar el último mensaje
     lastMessage = { source, payload }
 
-    /* auto-scroll y badge */
-    const wasBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 25
-    if (wasBottom) {
-      scrollToBottom()
-      unread = 0
-      badgeEl.classList.add("hidden")
-    } else {
+    // Si no estamos cerca del final, incrementar contador de no leídos
+    if (!isNearBottom && source !== LOCAL_SOURCE) {
       unread++
       badgeEl.textContent = unread
       badgeEl.classList.remove("hidden")
@@ -152,7 +221,7 @@ formEl.addEventListener("submit", async (e) => {
 
   inputEl.value = ""
   updateCharCount(0)
-  scrollToBottom()
+  scrollToBottom() // Siempre hacer scroll al enviar un mensaje
 })
 
 /* ---------- Contador de caracteres ---------- */
@@ -175,10 +244,12 @@ formEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.ctrlKey) formEl.requestSubmit()
 })
 
-/* ---------- badge reset al llegar al fondo ---------- */
+/* ---------- Eventos de scroll ---------- */
 msgsEl.addEventListener("scroll", () => {
-  if (msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 20) {
-    unread = 0
-    badgeEl.classList.add("hidden")
-  }
+  checkIfNearBottom()
+})
+
+/* ---------- Botón de scroll down ---------- */
+scrollDownBtn.addEventListener("click", () => {
+  scrollToBottom()
 })
