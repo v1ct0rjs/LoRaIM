@@ -91,8 +91,11 @@ last_activity_time = time.ticks_ms()
 screen_active = True
 button = None
 oled = None
+<<<<<<< HEAD
+=======
 mqttc = None
 lora = None
+>>>>>>> main
 
 # ───────── 5. OLED helpers ───────────────────────────────────────────────
 def activate_screen():
@@ -293,6 +296,8 @@ def pend_popleft():
     return pending.pop(0)
 
 # ───────── 10. Main loop ─────────────────────────────────────────────────
+<<<<<<< HEAD
+=======
 
 def lora_callback(events):
     """
@@ -319,6 +324,7 @@ def lora_callback(events):
         except Exception as e:
             oled_log(f"RX err: {str(e)[:10]}")
 
+>>>>>>> main
 def main():
     """
     Función principal que inicializa el sistema y gestiona la comunicación entre LoRa y MQTT.
@@ -362,7 +368,10 @@ def main():
     cid = ubinascii.hexlify(mac).decode()
 
     # Crear cliente MQTT robusto con parámetros mínimos
+<<<<<<< HEAD
+=======
     global mqttc
+>>>>>>> main
     mqttc = MQTTClient(cid, MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASS, keepalive=60)
     mqttc.DEBUG = True  # Habilitar depuración
     mqttc.set_callback(make_downlink_cb(lora))
@@ -377,9 +386,12 @@ def main():
     except Exception as e:
         oled_log(f"MQTT err: {str(e)[:10]}")
 
+<<<<<<< HEAD
+=======
     # Configurar callback para LoRa
     lora.setBlockingCallback(False, lora_callback)
 
+>>>>>>> main
     # Bucle principal
     while True:
         current_time = time.ticks_ms()
@@ -421,6 +433,23 @@ def main():
         except Exception as e:
             oled_log(f"MQTT err: {str(e)[:10]}")
             # La biblioteca robusta manejará la reconexión
+<<<<<<< HEAD
+
+        # Recibir mensajes LoRa (uplink)
+        pkt, st = lora.recv(timeout_en=True, timeout_ms=100)  # Timeout reducido para responder más rápido
+        if st == 0 and pkt:
+            try:
+                mqttc.publish(MQTT_TOPIC_UP, pkt, MQTT_RETAIN_UP, MQTT_QOS)
+                try:
+                    js = ujson.loads(pkt)
+                    oled_log("RX "+js.get("from","")[-6:]+":"+js.get("message","")[:8])
+                except:
+                    oled_log("RX pkt")
+            except Exception as e:
+                oled_log(f"Pub err: {str(e)[:10]}")
+                pend_append(pkt)
+=======
+>>>>>>> main
 
         # Pequeña pausa para evitar saturar la CPU
         time.sleep_ms(10)
