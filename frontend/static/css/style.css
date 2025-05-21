@@ -14,6 +14,14 @@
   --footer-border: #ddd;
   --shadow: rgba(0, 0, 0, 0.1);
   --time-color: rgba(0, 0, 0, 0.5);
+  --menu-bg: #fff;
+  --menu-border: #ddd;
+  --divider: #eaeaea;
+  --switch-bg: #ccc;
+  --switch-active: #4f46e5;
+  --online: #10b981;
+  --offline: #ef4444;
+  --node-bg: #f9f9f9;
 }
 
 /* Tema oscuro (ahora es el predeterminado) */
@@ -32,6 +40,14 @@
   --footer-border: #333;
   --shadow: rgba(0, 0, 0, 0.3);
   --time-color: rgba(255, 255, 255, 0.5);
+  --menu-bg: #1e1e1e;
+  --menu-border: #333;
+  --divider: #333;
+  --switch-bg: #555;
+  --switch-active: #6366f1;
+  --online: #10b981;
+  --offline: #ef4444;
+  --node-bg: #242424;
 }
 
 * {
@@ -90,7 +106,8 @@ body {
   gap: 0.8rem;
 }
 
-.theme-toggle {
+.theme-toggle,
+.settings-button {
   background: none;
   border: none;
   color: var(--header-fg);
@@ -105,7 +122,8 @@ body {
   transition: background-color 0.2s ease;
 }
 
-.theme-toggle:hover {
+.theme-toggle:hover,
+.settings-button:hover {
   background-color: rgba(255, 255, 255, 0.2);
 }
 
@@ -269,7 +287,7 @@ body {
   display: none;
 }
 
-/* Nuevos estilos para los elementos agregados */
+/* Estilos para los elementos agregados */
 .char-count {
   font-size: 0.8rem;
   color: #aaa;
@@ -279,6 +297,7 @@ body {
 .char-count.limit {
   color: #e53e3e;
 }
+
 .scroll-down-btn {
   position: absolute;
   bottom: 70px;
@@ -328,7 +347,7 @@ body {
   display: none;
 }
 
-/* Estilos para futuras mejoras */
+/* Estilos para las métricas LoRa */
 .metrics {
   font-size: 0.7rem;
   margin-top: 2px;
@@ -340,27 +359,165 @@ body {
 .snr {
   display: inline-block;
 }
+
+/* Estilos para el indicador de conexión */
+.connection-status {
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+  margin-left: 1rem;
+}
 .status-indicator {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  margin-left: 8px;
+  margin-right: 0.5rem;
+  transition: background-color 0.3s ease;
 }
 .status-indicator.online {
-  background-color: #10b981;
+  background-color: var(--online);
 }
 .status-indicator.offline {
-  background-color: #ef4444;
+  background-color: var(--offline);
 }
-.search-input {
-  padding: 4px 8px;
+
+/* Estilos para el menú de configuración */
+.settings-menu {
+  position: absolute;
+  top: 60px;
+  right: 10px;
+  background: var(--menu-bg);
+  border: 1px solid var(--menu-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px var(--shadow);
+  width: 280px;
+  z-index: 100;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.settings-options {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.settings-option {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.settings-option input[type="checkbox"] {
+  margin-right: 10px;
+  appearance: none;
+  width: 40px;
+  height: 20px;
+  background: var(--switch-bg);
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.settings-option input[type="checkbox"]:checked {
+  background: var(--switch-active);
+}
+
+.settings-option input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  background: white;
+  transition: all 0.3s ease;
+}
+
+.settings-option input[type="checkbox"]:checked::before {
+  left: 22px;
+}
+
+.search-section {
+  padding: 1rem;
+  border-top: 1px solid var(--divider);
+  display: flex;
+  gap: 0.5rem;
+}
+
+.search-section input {
+  flex: 1;
+  padding: 0.5rem;
   border-radius: 4px;
-  border: none;
-  font-size: 0.8rem;
-  margin-left: auto;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  border: 1px solid var(--divider);
+  background: var(--input-bg);
+  color: var(--input-fg);
 }
-.search-input::placeholder {
-  color: rgba(255, 255, 255, 0.7);
+
+.search-section button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--sent);
+  border: none;
+  color: white;
+  width: 32px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.nodes-section {
+  padding: 1rem;
+  border-top: 1px solid var(--divider);
+}
+
+.nodes-section h3 {
+  margin-bottom: 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.nodes-list {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.node-item {
+  background: var(--node-bg);
+  padding: 0.8rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.node-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.node-metrics {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.node-last-seen {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.no-nodes {
+  text-align: center;
+  padding: 1rem;
+  opacity: 0.7;
+  font-size: 0.8rem;
 }
