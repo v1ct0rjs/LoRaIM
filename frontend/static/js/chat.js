@@ -28,65 +28,6 @@ scrollDownBtn.innerHTML = "↓"
 scrollDownBtn.title = "Ir al último mensaje"
 document.querySelector(".chat-container").appendChild(scrollDownBtn)
 
-// Estilo para los nuevos elementos
-const style = document.createElement("style")
-style.textContent = `
-  .char-count {
-    font-size: 0.8rem;
-    color: #aaa;
-    margin-right: 0.5rem;
-    align-self: center;
-  }
-  .char-count.limit {
-    color: #e53e3e;
-  }
-  .scroll-down-btn {
-    position: absolute;
-    bottom: 70px;
-    right: 20px;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: var(--sent);
-    color: white;
-    border: none;
-    font-size: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    z-index: 10;
-    transition: all 0.2s;
-  }
-  .scroll-down-btn:hover {
-    transform: scale(1.1);
-  }
-  .scroll-down-btn.hidden {
-    display: none;
-  }
-  .badge-container {
-    position: relative;
-    display: inline-flex;
-  }
-  .badge {
-    background: var(--sent);
-    color: white;
-    border-radius: 50%;
-    min-width: 20px;
-    height: 20px;
-    padding: 0 6px;
-    font-size: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .badge.hidden {
-    display: none;
-  }
-`
-document.head.appendChild(style)
-
 /* ---------- util ---------- */
 function addBubble({ payload, source, time }) {
   const wrap = document.createElement("div")
