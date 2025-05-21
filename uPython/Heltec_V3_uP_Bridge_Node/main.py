@@ -151,7 +151,7 @@ def button_callback(pin):
     time.sleep_ms(50)
     if pin.value() == 0:  # Botón presionado (lógica negativa)
         activate_screen()
-        oled_log("Botón presionado")
+        # No mostramos ningún mensaje al pulsar el botón
 
 # ───────── 6. Init hardware ──────────────────────────────────────────────
 def init_oled():
