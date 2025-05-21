@@ -9,7 +9,7 @@ const inputEl = document.getElementById("msgInput")
 const headerEl = document.querySelector(".chat-header")
 
 /* ---------- estado ---------- */
-const seenIds = new Set()
+let lastMessage = { source: "", payload: "" }
 let unread = 0
 
 /* ---------- util ---------- */
@@ -29,13 +29,30 @@ function addBubble({ payload, source, time }) {
 ;(async () => {
   const res = await fetch(`/messages?limit=${PAGE}`)
   const { messages } = await res.json()
+
+  // Para la carga inicial, filtramos mensajes duplicados consecutivos
+  let prevMsg = { source: "", payload: "" }
+
   messages.forEach((m) => {
-    addBubble({
-      payload: m.payload,
-      source: m.source,
-      time: new Date().toLocaleTimeString().slice(0, 5),
-    })
+    // Solo añadir si es diferente al mensaje anterior
+    if (m.source !== prevMsg.source || m.payload !== prevMsg.payload) {
+      addBubble({
+        payload: m.payload,
+        source: m.source,
+        time: new Date().toLocaleTimeString().slice(0, 5),
+      })
+
+      // Actualizar el mensaje anterior
+      prevMsg = { source: m.source, payload: m.payload }
+    }
   })
+
+  // Guardar el último mensaje para comparar con nuevos WebSocket
+  if (messages.length > 0) {
+    const lastMsg = messages[messages.length - 1]
+    lastMessage = { source: lastMsg.source, payload: lastMsg.payload }
+  }
+
   msgsEl.scrollTop = msgsEl.scrollHeight // al fondo
   inputEl.focus()
 })()
@@ -50,23 +67,28 @@ ws.onclose = () => headerEl.classList.remove("online")
 ws.onmessage = (e) => {
   const { payload, source = "?" } = JSON.parse(e.data)
 
-  // Eliminamos la verificación de duplicados - mostrar cada mensaje
-  addBubble({
-    payload,
-    source,
-    time: new Date().toLocaleTimeString().slice(0, 5),
-  })
+  // Solo añadir burbuja si el mensaje es diferente al último
+  if (source !== lastMessage.source || payload !== lastMessage.payload) {
+    addBubble({
+      payload,
+      source,
+      time: new Date().toLocaleTimeString().slice(0, 5),
+    })
 
-  /* auto-scroll y badge */
-  const wasBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 25
-  if (wasBottom) {
-    msgsEl.scrollTop = msgsEl.scrollHeight
-    unread = 0
-    badgeEl.classList.add("hidden")
-  } else {
-    unread++
-    badgeEl.textContent = unread
-    badgeEl.classList.remove("hidden")
+    // Actualizar el último mensaje
+    lastMessage = { source, payload }
+
+    /* auto-scroll y badge */
+    const wasBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 25
+    if (wasBottom) {
+      msgsEl.scrollTop = msgsEl.scrollHeight
+      unread = 0
+      badgeEl.classList.add("hidden")
+    } else {
+      unread++
+      badgeEl.textContent = unread
+      badgeEl.classList.remove("hidden")
+    }
   }
 }
 
