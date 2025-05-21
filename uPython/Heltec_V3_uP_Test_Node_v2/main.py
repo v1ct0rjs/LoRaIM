@@ -1,90 +1,22 @@
 """
-LoRa Tester Node  – Heltec LoRa V3  (ESP32-S3 + SX1262 + OLED)
+Nodo Tester LoRa – Heltec LoRa V3 (ESP32-S3 + SX1262 + OLED)
 ================================================================
-EN ▸ Overview
-----------------------------------------------------------------
-This firmware turns the board into a **stand-alone LoRa test node** that
-periodically sends “Ping” packets and displays everything on its OLED.
+Este firmware convierte la placa en un nodo de prueba LoRa que
+envía periódicamente paquetes "Ping" y muestra todo en su OLED.
 
-Architecture & Flow
-‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-1.  **Transmit loop**
-    • Every *PAUSE* seconds (default 100 s) – or when the user presses
-      the onboard button – the node sends a JSON payload:
-      `{"from":"LoRaTester","message":"Ping <n>"}`
-    • Duty-cycle is respected: the node calculates time-on-air and waits
-      until it may transmit again (`minimum_pause`).
-
-2.  **Receive callback**
-    • The SX1262 is set in non-blocking RX mode; when a packet arrives
-      `on_receive()` stores payload, RSSI and SNR, then raises `rx_flag`.
-    • The main loop parses the JSON; shows **who**, **MSG**, **RSSI/SNR**
-      on the OLED and, if allowed, answers with `ACK:<n>`.
-
-3.  **User I/O**
-    • **Button 0**: manual send.
-    • **LED 35**: lit during TX.
-    • **OLED** : five-line scroll buffer for live feedback.
-
-4.  **Radio parameters** (must match the bridge):
-      F 868.1 MHz, BW 125 kHz, SF 7, CR 4/5, SyncWord 0x34, Pwr 14 dBm.
-
-Files required
-‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-* `sx1262.py`  +  `_sx126x.py`   — LoRa driver
-* `ssd1306.py`                  — OLED driver
-
-================================================================
-ES ▸ Descripción general
-----------------------------------------------------------------
-Este firmware convierte la Heltec en un **nodo de prueba LoRa** que envía
-“Ping” periódicos y muestra toda la actividad en la OLED.
-
-Arquitectura y flujo
-‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-1.  **Bucle de transmisión**
-    • Cada *PAUSE* segundos (100 s por defecto) —o al pulsar el botón—
-      envía un JSON:
-      `{"from":"LoRaTester","message":"Ping <n>"}`
-    • Respeta el duty-cycle: calcula el tiempo en aire y espera el
-      intervalo necesario (`minimum_pause`).
-
-2.  **Callback de recepción**
-    • El SX1262 queda en RX no bloqueante; al llegar un paquete,
-      `on_receive()` guarda payload, RSSI y SNR y pone `rx_flag`.
-    • El bucle principal analiza el JSON; muestra **quién**, **MSG**,
-      **RSSI/SNR** en la OLED y, si la normativa lo permite, responde
-      con `ACK:<n>`.
-
-3.  **Entradas / salidas**
-    • **Botón 0**: envío manual.
-    • **LED 35**: encendido durante TX.
-    • **OLED**: búfer de cinco líneas con desplazamiento para feedback.
-
-4.  **Parámetros de radio** (deben coincidir con el puente):
-      F 868,1 MHz, BW 125 kHz, SF 7, CR 4/5, SyncWord 0x34, Pwr 14 dBm.
-
-Archivos necesarios
-‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-* `sx1262.py`  +  `_sx126x.py`   — driver LoRa
-* `ssd1306.py`                  — driver OLED
-
-License
-----------------------------------------------------------------
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GPLv3 License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option)
-any later version.
+Mejoras:
+- Mejor manejo de la recepción de mensajes
+- Mejor sincronización entre transmisión y recepción
+- Mejor visualización de estados en la OLED
 """
 
 import time, gc, _thread
 from machine import Pin, I2C
-import network
 import ujson
 from sx1262 import SX1262
 import ssd1306
 
-# ───────── Board pins (Heltec V3 ESP32‑S3) ──────────────────────────────────
+# ───────── Pines de la placa (Heltec V3 ESP32‑S3) ──────────────────────────────────
 #   LoRa
 LORA_CS    = 8
 LORA_SCK   = 9
@@ -95,25 +27,25 @@ LORA_BUSY  = 13
 LORA_DIO1  = 14
 
 #   OLED
-VEXT       = 36   # power for display
+VEXT       = 36   # alimentación para la pantalla
 OLED_SCL   = 18
 OLED_SDA   = 17
 OLED_RST   = 21
 
-#   User I/O
+#   E/S de usuario
 USER_BUTTON = 0
 LED         = 35
 
-# ───────── LoRa settings — must match the peer node ────────────────────────
+# ───────── Configuración LoRa — debe coincidir con el nodo par ────────────────────────
 FREQUENCY        = 868.1      # MHz
 BANDWIDTH        = 125.0      # kHz
 SPREADING_FACTOR = 7
 CODING_RATE      = 5          # 4/5
 SYNC_WORD        = 0x34
 TRANSMIT_POWER   = 14         # dBm
-PAUSE            = 100        # s between automatic pings
+PAUSE            = 100        # s entre pings automáticos
 
-# ───────── OLED constants ──────────────────────────────────────────────────
+# ───────── Constantes OLED ──────────────────────────────────────────────────
 OLED_WIDTH  = 128
 OLED_HEIGHT = 64
 BRIGHTNESS  = 255
@@ -122,10 +54,9 @@ MAX_LINES   = 5
 
 display_buffer = ["" for _ in range(MAX_LINES)]
 
-NODE_NAME = "LoRaTester"  # Node name for display and packet payload
+NODE_NAME = "LoRaTester"  # Nombre del nodo para la pantalla y carga útil del paquete
 
-
-# ───────── Globals ─────────────────────────────────────────────────────────
+# ───────── Variables globales ─────────────────────────────────────────────────────────
 tx_cnt = 0
 rx_cnt = 0
 last_tx = 0
@@ -136,10 +67,10 @@ rx_rssi = 0.0
 rx_snr  = 0.0
 rx_lock = _thread.allocate_lock()
 
-# ───────── Display helpers ─────────────────────────────────────────────────
+# ───────── Funciones auxiliares de pantalla ─────────────────────────────────────────────────
 def lcd_scroll(text: str):
     """
-    Scrolls the OLED display buffer and shows the text.
+    Desplaza el buffer de la pantalla OLED y muestra el texto.
     :param text:
     :return:
     """
@@ -151,15 +82,15 @@ def lcd_scroll(text: str):
     oled.show()
     print(text)
 
-# ───────── Hardware initialisation ─────────────────────────────────────────
+# ───────── Inicialización del hardware ─────────────────────────────────────────────
 def init_hardware():
     """
-    Initialises the hardware: OLED, LoRa, button and LED.
+    Inicializa el hardware: OLED, LoRa, botón y LED.
     :return:
     """
     global oled, btn, led, lora
 
-    # Power OLED (VEXT LOW = ON)
+    # Alimentar OLED (VEXT LOW = ON)
     Pin(VEXT, Pin.OUT, value=0)
 
     led = Pin(LED, Pin.OUT, value=0)
@@ -171,7 +102,7 @@ def init_hardware():
 
     i2c = I2C(0, scl=Pin(OLED_SCL), sda=Pin(OLED_SDA), freq=400_000)
     if 0x3C not in i2c.scan():
-        raise RuntimeError("OLED not found – check wiring")
+        raise RuntimeError("OLED no encontrado – compruebe el cableado")
     oled = ssd1306.SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c)
     oled.contrast(BRIGHTNESS)
 
@@ -185,10 +116,10 @@ def init_hardware():
         raise RuntimeError(f"SX1262 begin err {err}")
     lora.setBlockingCallback(False, on_receive)
 
-# ───────── LoRa callbacks ──────────────────────────────────────────────────
+# ───────── Devoluciones de llamada LoRa ──────────────────────────────────────────────
 def on_receive(events):
     """
-    Callback for RX done event. It is called when a packet is received.
+    Devolución de llamada para el evento RX done. Se llama cuando se recibe un paquete.
     :param events:
     :return:
     """
@@ -202,43 +133,87 @@ def on_receive(events):
                 rx_rssi = lora.getRSSI()
                 rx_snr  = lora.getSNR()
 
-# ───────── Helpers ─────────────────────────────────────────────────────────
+# ───────── Funciones auxiliares ─────────────────────────────────────────────────
 def button_pressed():
     """
-    Checks if the button is pressed. If so, it waits for 30 ms to
-    :return:
+    Comprueba si el botón está presionado con anti-rebote.
+    :return: True si el botón está presionado, False en caso contrario
     """
     if not btn.value():
-        time.sleep_ms(30)
+        time.sleep_ms(30)  # Anti-rebote
         return not btn.value()
     return False
 
 def transmit(msg: str):
     """
-    Transmits a message over LoRa. It calculates the time-on-air and
-    :param msg:
-    :return:
+    Transmite un mensaje a través de LoRa.
+    :param msg: Mensaje a transmitir
+    :return: (tiempo_transmisión, estado)
     """
     global last_tx, minimum_pause, tx_cnt
-    payload = f'{{"from": "{NODE_NAME}", "message": "{msg}"}}'
+
+    # Crear la carga útil con un ID único para cada mensaje
+    payload = f'{{"from": "{NODE_NAME}", "message": "{msg}", "id": {tx_cnt}}}'
+
+    # Transmitir el mensaje
     led.on()
     t0 = time.ticks_ms()
     _, st = lora.send(payload.encode() + b"\n")
     dt = time.ticks_diff(time.ticks_ms(), t0)
     led.off()
-    if st:
-        lcd_scroll(f"TX error {st}")
-    else:
-        minimum_pause = dt * 100   # duty‑cycle guard
-        last_tx = time.ticks_ms()
-    lcd_scroll(f"TX {tx_cnt}:{msg}")
-    tx_cnt += 1
-    return dt
 
-# ───────── Main loop ───────────────────────────────────────────────────────
+    if st == 0:  # Éxito
+        # Calcular el tiempo mínimo de pausa para el ciclo de trabajo
+        # Añadimos un pequeño margen de seguridad (10%)
+        minimum_pause = int(dt * 100 * 1.1)
+        last_tx = time.ticks_ms()
+        lcd_scroll(f"TX {tx_cnt}:{msg}")
+    else:
+        # Error de transmisión
+        lcd_scroll(f"Error TX {st}")
+
+    tx_cnt += 1
+    return dt, st
+
+def process_received_message():
+    """
+    Procesa un mensaje recibido desde rx_flag y rx_data.
+    :return: None
+    """
+    global rx_flag, rx_cnt
+
+    if not rx_flag:
+        return
+
+    with rx_lock:
+        rx_flag = False
+        try:
+            rx_payload = ujson.loads(rx_data)
+            who = rx_payload.get("from", "?")[-6:]
+            msg = rx_payload.get("message", "")[:16]
+
+            lcd_scroll(f"RX {rx_cnt}:{who}:{msg}")
+            lcd_scroll(f"RSSI {rx_rssi:.1f} SNR {rx_snr:.1f}")
+
+            # Enviar ACK si es legal (respetando el ciclo de trabajo)
+            now = time.ticks_ms()
+            legal = time.ticks_diff(now, last_tx) > minimum_pause
+
+            if legal:
+                transmit(f"ACK:{rx_cnt}")
+
+            rx_cnt += 1
+
+        except Exception as e:
+            # Manejar errores de análisis
+            lcd_scroll(f"Error análisis RX: {e}")
+            lcd_scroll(f"Raw: {rx_data[:20]}")
+
+# ───────── Bucle principal ───────────────────────────────────────────────
 def main():
     """
-    Main loop of the program. It handles the LoRa transmission and
+    Bucle principal del programa. Maneja la transmisión y
+    recepción LoRa.
     :return:
     """
     global rx_flag, rx_cnt, tx_cnt
@@ -246,7 +221,7 @@ def main():
     init_hardware()
     lcd_scroll("LoRa Tester")
     lcd_scroll(NODE_NAME)
-    # Initial hello
+    # Saludo inicial
     transmit("Hello Tester")
 
     while True:
@@ -254,30 +229,18 @@ def main():
         now = time.ticks_ms()
         legal = time.ticks_diff(now, last_tx) > minimum_pause
 
+        # Comprobar transmisión automática o manual
         if (PAUSE and legal and
             time.ticks_diff(now, last_tx) > PAUSE*1000) or button_pressed():
             if not legal:
                 left = (minimum_pause - time.ticks_diff(now, last_tx))//1000 + 1
-                lcd_scroll(f"Duty wait {left}s")
+                lcd_scroll(f"Espera ciclo {left}s")
             else:
                 transmit(f"Ping {tx_cnt}")
 
+        # Procesar cualquier mensaje recibido
         if rx_flag:
-            with rx_lock:
-                rx_flag = False
-                try:
-                    rx_payload = ujson.loads(rx_data)
-                    who = rx_payload.get("from", "?")[-6:]
-                    msg = rx_payload.get("message", "")[:16]
-                except:
-                    who = "raw"
-                    msg = rx_data[:16]
-                lcd_scroll(f"RX {rx_cnt}:{who}:{msg}")
-                lcd_scroll(f"RSSI {rx_rssi:.1f} SNR {rx_snr:.1f}")
-                rx_cnt += 1
-
-            if legal:
-                transmit(f"ACK:{tx_cnt}")
+            process_received_message()
 
         time.sleep_ms(20)
 

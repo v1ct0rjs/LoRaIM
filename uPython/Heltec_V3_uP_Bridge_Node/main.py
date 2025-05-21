@@ -91,6 +91,8 @@ last_activity_time = time.ticks_ms()
 screen_active = True
 button = None
 oled = None
+mqttc = None
+lora = None
 
 # ───────── 5. OLED helpers ───────────────────────────────────────────────
 def activate_screen():
@@ -228,11 +230,12 @@ def init_lora():
     Inicializa el módulo LoRa SX1262 y lo configura con los parámetros especificados.
     :return:
     """
-    l = SX1262(1, LORA_SCK, LORA_MOSI, LORA_MISO,
+    global lora
+    lora = SX1262(1, LORA_SCK, LORA_MOSI, LORA_MISO,
                LORA_CS, LORA_DIO1, LORA_RESET, LORA_BUSY)
-    err = l.begin(freq=FREQ, bw=BW, sf=SF, cr=CR, power=TX_POWER, syncWord=SYNC_WORD, blocking=True)
+    err = lora.begin(freq=FREQ, bw=BW, sf=SF, cr=CR, power=TX_POWER, syncWord=SYNC_WORD, blocking=False)
     if err: raise RuntimeError("LoRa init err %d" % err)
-    return l
+    return lora
 
 # ───────── 7. Node name ─────────────────────────────────────────────────
 mac = network.WLAN(network.STA_IF).config('mac')
@@ -290,6 +293,32 @@ def pend_popleft():
     return pending.pop(0)
 
 # ───────── 10. Main loop ─────────────────────────────────────────────────
+
+def lora_callback(events):
+    """
+    Callback para recibir mensajes LoRa.
+    :param events: Eventos LoRa
+    :return:
+    """
+    global mqttc, lora
+    if events & SX1262.RX_DONE:
+        try:
+            pkt, st = lora.recv()
+            if st == 0 and pkt:
+                try:
+                    # Publicar en MQTT
+                    mqttc.publish(MQTT_TOPIC_UP, pkt, MQTT_RETAIN_UP, MQTT_QOS)
+                    try:
+                        js = ujson.loads(pkt)
+                        oled_log("RX "+js.get("from","")[-6:]+":"+js.get("message","")[:8])
+                    except:
+                        oled_log("RX pkt: " + pkt.decode()[:10])
+                except Exception as e:
+                    oled_log(f"Pub err: {str(e)[:10]}")
+                    pend_append(pkt)
+        except Exception as e:
+            oled_log(f"RX err: {str(e)[:10]}")
+
 def main():
     """
     Función principal que inicializa el sistema y gestiona la comunicación entre LoRa y MQTT.
@@ -333,6 +362,7 @@ def main():
     cid = ubinascii.hexlify(mac).decode()
 
     # Crear cliente MQTT robusto con parámetros mínimos
+    global mqttc
     mqttc = MQTTClient(cid, MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASS, keepalive=60)
     mqttc.DEBUG = True  # Habilitar depuración
     mqttc.set_callback(make_downlink_cb(lora))
@@ -346,6 +376,9 @@ def main():
         mqttc.publish(MQTT_TOPIC_UP, ujson.dumps({"from": NODE_NAME, "message": "online"}), True, MQTT_QOS)
     except Exception as e:
         oled_log(f"MQTT err: {str(e)[:10]}")
+
+    # Configurar callback para LoRa
+    lora.setBlockingCallback(False, lora_callback)
 
     # Bucle principal
     while True:
@@ -388,20 +421,6 @@ def main():
         except Exception as e:
             oled_log(f"MQTT err: {str(e)[:10]}")
             # La biblioteca robusta manejará la reconexión
-
-        # Recibir mensajes LoRa (uplink)
-        pkt, st = lora.recv(timeout_en=True, timeout_ms=100)  # Timeout reducido para responder más rápido
-        if st == 0 and pkt:
-            try:
-                mqttc.publish(MQTT_TOPIC_UP, pkt, MQTT_RETAIN_UP, MQTT_QOS)
-                try:
-                    js = ujson.loads(pkt)
-                    oled_log("RX "+js.get("from","")[-6:]+":"+js.get("message","")[:8])
-                except:
-                    oled_log("RX pkt")
-            except Exception as e:
-                oled_log(f"Pub err: {str(e)[:10]}")
-                pend_append(pkt)
 
         # Pequeña pausa para evitar saturar la CPU
         time.sleep_ms(10)
