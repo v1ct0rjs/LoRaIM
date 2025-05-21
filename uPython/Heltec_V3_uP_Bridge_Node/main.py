@@ -5,122 +5,19 @@ LoRaIM Bridge – Heltec V3 (ESP32-S3 + SX1262 + OLED)
 Este firmware convierte una placa Heltec WiFi LoRa V3 en un puente bidireccional LoRa ↔ MQTT, facilitando la comunicación
 transparente entre nodos LoRa y una infraestructura MQTT.
 
-Características Principales:
-----------------------------
-- Configuración Modular: Lee parámetros desde un archivo `.env`, incluyendo ajustes de Wi-Fi, MQTT, LoRa y OLED,
-facilitando personalización sin modificaciones de código.
-- Identificador Único Automático: Genera un `NODE_NAME` único del tipo `"Node-XXXXXX"`, garantizando la identificación
-automática de cada dispositivo desplegado.
-- Inicialización Integrada: Conecta automáticamente a Wi-Fi, inicializa el módulo LoRa SX1262 y muestra información
-crítica (estado, IP asignada, mensajes transmitidos y recibidos) en la pantalla OLED.
-
-Flujo de Mensajes:
-------------------
-1. MQTT → LoRa
-   - Se suscribe al tópico MQTT definido en `MQTT_TOPIC_DOWN` (p. ej., `lorachat/down`).
-   - Cada mensaje MQTT recibido se convierte en un JSON estructurado:
-     {"from": NODE_NAME, "message": "texto"}
-   - Este paquete JSON se transmite por LoRa hacia los nodos en rango.
-
-2. LoRa → MQTT
-   - Escucha continuamente los mensajes LoRa entrantes.
-   - Al recibir paquetes LoRa válidos, publica su contenido en el topic definido por `MQTT_TOPIC_UP`
-   (p. ej., `lorachat/up`) con calidad de servicio (QoS) 1 y retención configurable.
-   - Si la conexión MQTT no está disponible, los mensajes entrantes se almacenan temporalmente en un buffer circular
-   (`pending[]`) y se retransmiten automáticamente al restablecerse la conexión.
-
-Robustez y Fiabilidad MQTT:
----------------------------
-- QoS Nivel 1: Asegura la entrega fiable de mensajes.
-- Keep-alive 30 s: Mantiene activa y supervisada la conexión con el broker MQTT.
-- Aviso de caída (Last-Will): Publica un estado "offline" retenido para alertar inmediatamente ante desconexiones
-inesperadas.
-- Reconexión Automática: Implementa un mecanismo de reintentos con espera incremental (back-off exponencial)
-desde 2 s hasta 30 s máx.
-- Buffering inteligente: Publica automáticamente mensajes pendientes tras reconexiones.
-
-Interfaz Visual (OLED):
------------------------
-- Pantalla OLED SSD1306 de 128×64 píxeles, mostrando:
-  • Dirección IP obtenida tras arranque y conexión Wi-Fi.
-  • Estado en tiempo real de la conexión MQTT.
-  • Mensajes enviados y recibidos por LoRa claramente diferenciados.
-
-Personalización Avanzada:
------------------------
-- Parámetros ajustables directamente desde `.env`:
-  • Frecuencia, potencia, ancho de banda, spreading factor (SF), etc.
-  • Brillo de la pantalla OLED.
-- Extensible mediante las bibliotecas adjuntas:
-  • sx1262.py (control módulo LoRa SX1262)
-  • ssd1306.py (control pantalla OLED)
-  • simple.py (cliente MQTT simplificado)
-
-English Version:
-
-Main Features:
---------------
-- Modular Configuration:** Reads settings from a `.env` file, including Wi-Fi, MQTT, LoRa, and OLED parameters,
-allowing easy customization without changing the code.
-- Automatic Unique Identifier:** Generates a unique `NODE_NAME` in the form `"Node-XXXXXX"` for automatic device
-identification.
-- Integrated Initialization:** Automatically connects to Wi-Fi, initializes the LoRa SX1262 module, and displays
-critical status information (connection status, IP address, transmitted/received messages) on the OLED screen.
-
-Message Flow:
--------------
-1. **MQTT → LoRa**
-   - Subscribes to the MQTT topic defined in `MQTT_TOPIC_DOWN` (e.g., `lorachat/down`).
-   - Every received MQTT message is converted to a structured JSON payload:
-          {"from": NODE_NAME, "message": "text"}
-   - This JSON payload is then transmitted over LoRa to nodes within range.
-
-2. **LoRa → MQTT**
-   - Continuously listens for incoming LoRa packets.
-   - Upon receiving valid LoRa messages, publishes them to the MQTT topic defined by `MQTT_TOPIC_UP`
-   (e.g., `lorachat/up`) with Quality of Service (QoS) level 1 and optional retention.
-   - If the MQTT connection is unavailable, messages are temporarily stored in a circular buffer (`pending[]`)
-   and automatically retransmitted upon reconnection.
-
-MQTT Reliability and Robustness:
---------------------------------
-- QoS Level 1:** Ensures reliable message delivery.
-- Keep-alive 30s:** Maintains and supervises an active connection to the MQTT broker.
-- Last-Will Notification:** Publishes a retained `"offline"` status to immediately notify clients of
-unexpected disconnections.
-- Automatic Reconnection:** Implements exponential back-off reconnection attempts starting from 2 seconds up to a
-maximum of 30 seconds.
-- Intelligent Buffering:** Automatically publishes pending messages after reconnection.
-
-OLED Visual Interface:
-----------------------
-- Uses a 128×64 pixel SSD1306 OLED display to show:
-  • Device IP address after Wi-Fi connection.
-  • Real-time MQTT connection status.
-  • Clearly differentiated incoming/outgoing LoRa messages.
-
-Advanced Customization:
------------------------
-- Adjustable parameters directly from `.env`:
-  • LoRa frequency, power, bandwidth, spreading factor (SF), etc.
-  • OLED brightness.
-- Extendable through included libraries:
-  • `sx1262.py` (LoRa SX1262 module control)
-  • `ssd1306.py` (OLED display control)
-  • `simple.py` (Simplified MQTT client)
-
-Licencia y Créditos:
---------------------
-LoRaIM es un proyecto de código abierto bajo la licencia GPL v3.
-2025 LoRaIM.
+Versión optimizada con protector de pantalla OLED y activación por botón.
 """
 # ───────── Imports ─────────────────────────────────────────────────────────
 import time, gc, ubinascii, ujson
-from machine  import Pin, I2C
+from machine import Pin, I2C, WDT
 import network
-from simple   import MQTTClient
-from sx1262   import SX1262
+from umqtt.robust import MQTTClient
+from sx1262 import SX1262
 import ssd1306
+import micropython
+
+# Reservamos buffer para excepciones
+micropython.alloc_emergency_exception_buf(100)
 
 # ───────── 1. Leer .env ───────────────────────────────────────────────────
 def load_env(path="/.env"):
@@ -159,6 +56,7 @@ ENV = load_env()
 LORA_CS, LORA_SCK, LORA_MOSI, LORA_MISO = 8, 9, 10, 11
 LORA_RESET, LORA_BUSY, LORA_DIO1        = 12, 13, 14
 VEXT, OLED_SCL, OLED_SDA, OLED_RST      = 36, 18, 17, 21
+BUTTON_PIN                              = 0   # Pin del botón integrado
 
 # ───────── 3. Parámetros de configuración ────────────────────────────────
 WIFI_SSID     = getenv(ENV, "WIFI_SSID", str, "MySSID")
@@ -183,15 +81,48 @@ TX_POWER   = getenv(ENV, "TRANSMIT_POWER", int, 14)
 
 BRIGHTNESS = getenv(ENV, "BRIGHTNESS", int, 200)
 
-# ───────── 4. OLED helpers ───────────────────────────────────────────────
+# Tiempo de inactividad antes de apagar la pantalla (5 minutos en ms)
+SCREEN_TIMEOUT = 5 * 60 * 1000
+
+# ───────── 4. Variables globales ───────────────────────────────────────────
 LINE_H, MAX_LINES = 12, 5
 _lines = [""] * MAX_LINES
+last_activity_time = time.ticks_ms()
+screen_active = True
+button = None
+oled = None
+
+# ───────── 5. OLED helpers ───────────────────────────────────────────────
+def activate_screen():
+    """
+    Activa la pantalla OLED si estaba apagada.
+    """
+    global last_activity_time, screen_active
+
+    # Actualizar tiempo de última actividad
+    last_activity_time = time.ticks_ms()
+
+    # Reactivar pantalla si estaba apagada
+    if not screen_active:
+        oled.poweron()
+        screen_active = True
+        oled.fill(0)
+        for i,l in enumerate(_lines):
+            oled.text(l, 0, i*LINE_H, 1)
+        oled.show()
+
 def oled_log(txt):
     """
     Muestra un mensaje en la pantalla OLED y lo imprime en la consola.
+    También reactiva la pantalla si estaba apagada.
     :param txt:
     :return:
     """
+    global _lines
+
+    # Activar pantalla
+    activate_screen()
+
     _lines.pop(0); _lines.append(txt)
     oled.fill(0)
     for i,l in enumerate(_lines):
@@ -199,7 +130,30 @@ def oled_log(txt):
     oled.show()
     print(txt)
 
-# ───────── 5. Init hardware ──────────────────────────────────────────────
+def check_screen_timeout(current_time):
+    """
+    Verifica si ha pasado el tiempo de inactividad y apaga la pantalla si es necesario.
+    :param current_time: Tiempo actual en ms
+    :return:
+    """
+    global screen_active
+    if screen_active and time.ticks_diff(current_time, last_activity_time) > SCREEN_TIMEOUT:
+        oled.poweroff()
+        screen_active = False
+
+def button_callback(pin):
+    """
+    Callback para el botón. Activa la pantalla cuando se pulsa el botón.
+    :param pin: Pin que generó la interrupción
+    :return:
+    """
+    # Debounce simple
+    time.sleep_ms(50)
+    if pin.value() == 0:  # Botón presionado (lógica negativa)
+        activate_screen()
+        oled_log("Botón presionado")
+
+# ───────── 6. Init hardware ──────────────────────────────────────────────
 def init_oled():
     """
     Inicializa la pantalla OLED y la configura.
@@ -213,17 +167,60 @@ def init_oled():
     oled = ssd1306.SSD1306_I2C(128, 64, i2c)
     oled.contrast(BRIGHTNESS)
 
+def init_button():
+    """
+    Inicializa el botón y configura la interrupción.
+    :return:
+    """
+    global button
+    button = Pin(BUTTON_PIN, Pin.IN, Pin.PULL_UP)
+    button.irq(trigger=Pin.IRQ_FALLING, handler=button_callback)
+
 def wifi_connect():
     """
     Conecta a la red Wi-Fi y devuelve la dirección IP asignada.
     :return:
     """
-    wlan = network.WLAN(network.STA_IF); wlan.active(True)
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+
+    # Configurar WiFi para mayor estabilidad
+    wlan.config(reconnects=5)  # Intentar reconectar automáticamente
+
     if not wlan.isconnected():
-        wlan.connect(WIFI_SSID, WIFI_PASS)
-        for _ in range(60):
-            if wlan.isconnected(): break
-            oled_log("WiFi…"); time.sleep_ms(200)
+        try:
+            oled_log("Conectando WiFi")
+            wlan.connect(WIFI_SSID, WIFI_PASS)
+
+            # Esperar hasta 30 segundos para la conexión
+            max_wait = 30
+            while max_wait > 0:
+                if wlan.isconnected():
+                    break
+                max_wait -= 1
+                oled_log(f"WiFi... {max_wait}")
+                time.sleep(1)
+
+            # Si no se conectó, reiniciar el adaptador WiFi
+            if not wlan.isconnected():
+                oled_log("Reintentando WiFi")
+                wlan.active(False)
+                time.sleep(1)
+                wlan.active(True)
+                time.sleep(1)
+                wlan.connect(WIFI_SSID, WIFI_PASS)
+
+                # Esperar otros 30 segundos
+                max_wait = 30
+                while max_wait > 0:
+                    if wlan.isconnected():
+                        break
+                    max_wait -= 1
+                    oled_log(f"WiFi... {max_wait}")
+                    time.sleep(1)
+        except Exception as e:
+            oled_log(f"WiFi err: {str(e)[:10]}")
+
     return wlan.ifconfig()[0] if wlan.isconnected() else "NO-WIFI"
 
 def init_lora():
@@ -237,11 +234,11 @@ def init_lora():
     if err: raise RuntimeError("LoRa init err %d" % err)
     return l
 
-# ───────── 6. Node name ─────────────────────────────────────────────────
+# ───────── 7. Node name ─────────────────────────────────────────────────
 mac = network.WLAN(network.STA_IF).config('mac')
 NODE_NAME = "Node-" + ubinascii.hexlify(mac).decode()[-6:].upper()
 
-# ───────── 7. MQTT → LoRa callback ──────────────────────────────────────
+# ───────── 8. MQTT → LoRa callback ──────────────────────────────────────
 def make_downlink_cb(lora):
     """
     Crea un callback para recibir mensajes MQTT y enviarlos por LoRa.
@@ -256,16 +253,24 @@ def make_downlink_cb(lora):
         :return:
         """
         try:
-            js  = ujson.loads(msg)
+            js = ujson.loads(msg)
             txt = js.get("message", "")
-        except: txt = msg.decode()
-        if not txt: return
-        pkt = ujson.dumps({"from": NODE_NAME, "message": txt})
-        lora.send(pkt.encode()+b"\n")
-        oled_log("TX LoRa: "+txt[:10])
+        except:
+            txt = msg.decode()
+
+        if not txt:
+            return
+
+        try:
+            pkt = ujson.dumps({"from": NODE_NAME, "message": txt})
+            lora.send(pkt.encode()+b"\n")
+            oled_log("TX LoRa: "+txt[:10])
+        except Exception as e:
+            oled_log(f"TX err: {str(e)[:10]}")
+
     return _cb
 
-# ───────── 8. Buffer de pendientes (lista circular) ─────────────────────
+# ───────── 9. Buffer de pendientes (lista circular) ─────────────────────
 PENDING_MAX = 200
 pending = []
 def pend_append(pkt):
@@ -284,88 +289,131 @@ def pend_popleft():
     """
     return pending.pop(0)
 
-# ───────── 9. Main loop ─────────────────────────────────────────────────
+# ───────── 10. Main loop ─────────────────────────────────────────────────
 def main():
     """
     Función principal que inicializa el sistema y gestiona la comunicación entre LoRa y MQTT.
     :return:
     """
-    init_oled();
+    # Inicializar watchdog
+    try:
+        wdt = WDT(timeout=30000)  # 30 segundos
+        has_watchdog = True
+    except:
+        has_watchdog = False
+        print("No WDT support")
+
+    # Inicializar hardware
+    init_oled()
+    init_button()  # Inicializar el botón
     oled_log("Booting")
 
-    ip = wifi_connect();
+    ip = wifi_connect()
     oled_log(ip)
 
-    lora = init_lora();
+    # Si no hay conexión WiFi, reintentar o reiniciar
+    if ip == "NO-WIFI":
+        oled_log("WiFi fallido")
+        time.sleep(5)
+        import machine
+        machine.reset()
+
+    lora = init_lora()
     oled_log("LoRa OK")
 
     oled_log(NODE_NAME)
 
+    # Variables para control de tiempo
+    last_ping_time = time.ticks_ms()
+    start_time = time.time()
+    ping_interval = 15000  # 15 segundos
+    reset_interval = 86400  # 24 horas en segundos
+
+    # Inicializar MQTT con la biblioteca robusta - PARÁMETROS SIMPLIFICADOS
     cid = ubinascii.hexlify(mac).decode()
-    mqttc = MQTTClient(cid, MQTT_HOST, MQTT_PORT, user=MQTT_USER, password=MQTT_PASS, keepalive=30)
-    # Last Will message removed to prevent reconnection issues
+
+    # Crear cliente MQTT robusto con parámetros mínimos
+    mqttc = MQTTClient(cid, MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASS, keepalive=60)
+    mqttc.DEBUG = True  # Habilitar depuración
     mqttc.set_callback(make_downlink_cb(lora))
 
-    backoff = 2000      # ms
-    mqtt_ok = False
+    # Intentar conectar MQTT
+    try:
+        mqttc.connect()
+        mqttc.subscribe(MQTT_TOPIC_DOWN, MQTT_QOS)
+        oled_log("MQTT OK")
+        # Publicar estado online
+        mqttc.publish(MQTT_TOPIC_UP, ujson.dumps({"from": NODE_NAME, "message": "online"}), True, MQTT_QOS)
+    except Exception as e:
+        oled_log(f"MQTT err: {str(e)[:10]}")
 
+    # Bucle principal
     while True:
-        # ── reconexión MQTT ───────────────────────────
-        if not mqtt_ok:
-            try:
-                mqttc.connect()
-                mqttc.subscribe(MQTT_TOPIC_DOWN, MQTT_QOS)
-                oled_log("MQTT OK")
-                mqtt_ok = True
-                backoff = 2000
-                mqttc.publish(MQTT_TOPIC_UP, ujson.dumps({"from": NODE_NAME, "message": "online"}), True, MQTT_QOS)
-                if not mqtt_ok:
-                    try:
-                        mqttc.disconnect()  # <-- evita falso 'offline'
-                    except OSError:
-                        pass
-                # vaciar pendientes
-                while pending and mqtt_ok:
-                    pkt = pend_popleft()
-                    try:
-                        mqttc.publish(MQTT_TOPIC_UP, pkt, MQTT_RETAIN_UP, MQTT_QOS)
-                    except OSError:
-                        pend_append(pkt)
-                        mqtt_ok = False
-                        break
-            except OSError:
-                oled_log(f"MQTT retry…({len(pending)})")
-                time.sleep_ms(backoff)
-                backoff = min(backoff*2, MQTT_RECON_MAX)
-                continue
+        current_time = time.ticks_ms()
 
-        # ── downlink MQTT → LoRa ─────────────────────
+        # Alimentar watchdog
+        if has_watchdog:
+            wdt.feed()
+
+        # Verificar si hay que apagar la pantalla
+        check_screen_timeout(current_time)
+
+        # Reinicio programado cada 24 horas
+        if time.time() - start_time > reset_interval:
+            oled_log("Reinicio programado")
+            time.sleep_ms(1000)
+            import machine
+            machine.reset()
+
+        # Comprobar conexión MQTT y reconectar si es necesario
         try:
+            # Comprobar mensajes MQTT (downlink)
             mqttc.check_msg()
-        except OSError:
-            mqtt_ok = False
 
-        # ── uplink LoRa → MQTT ───────────────────────
-        pkt, st = lora.recv(timeout_en=True, timeout_ms=200)
-        if st == 0 and pkt:
-            if mqtt_ok:
+            # Ping periódico para mantener la conexión
+            if time.ticks_diff(current_time, last_ping_time) > ping_interval:
+                mqttc.ping()
+                last_ping_time = current_time
+
+            # Procesar mensajes pendientes
+            if pending:
+                pkt = pend_popleft()
                 try:
                     mqttc.publish(MQTT_TOPIC_UP, pkt, MQTT_RETAIN_UP, MQTT_QOS)
-                except OSError:
-                    mqtt_ok = False
+                    oled_log(f"Sent pending ({len(pending)})")
+                except Exception as e:
                     pend_append(pkt)
-            else:
-                pend_append(pkt)
+                    oled_log(f"Pend err: {str(e)[:10]}")
+                    # La biblioteca robusta manejará la reconexión
+        except Exception as e:
+            oled_log(f"MQTT err: {str(e)[:10]}")
+            # La biblioteca robusta manejará la reconexión
+
+        # Recibir mensajes LoRa (uplink)
+        pkt, st = lora.recv(timeout_en=True, timeout_ms=100)  # Timeout reducido para responder más rápido
+        if st == 0 and pkt:
             try:
-                js = ujson.loads(pkt)
-                oled_log("RX "+js.get("from","")[-6:]+":"+js.get("message","")[:8])
-            except: oled_log("RX pkt")
-        if mqtt_ok:
-            try: mqttc.ping()
-            except OSError: mqtt_ok = False
+                mqttc.publish(MQTT_TOPIC_UP, pkt, MQTT_RETAIN_UP, MQTT_QOS)
+                try:
+                    js = ujson.loads(pkt)
+                    oled_log("RX "+js.get("from","")[-6:]+":"+js.get("message","")[:8])
+                except:
+                    oled_log("RX pkt")
+            except Exception as e:
+                oled_log(f"Pub err: {str(e)[:10]}")
+                pend_append(pkt)
 
-        gc.collect()
-        time.sleep_ms(50)
+        # Pequeña pausa para evitar saturar la CPU
+        time.sleep_ms(10)
 
+# ───────── 11. Manejo de errores y punto de entrada ─────────────────────
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        # En caso de error fatal, registrar y reiniciar
+        error_msg = f"ERROR FATAL: {str(e)}"
+        print(error_msg)
+        time.sleep(5)
+        import machine
+        machine.reset()
