@@ -24,16 +24,21 @@ themeToggle.innerHTML = "🌓"
 themeToggle.title = "Cambiar tema"
 headerActions.appendChild(themeToggle)
 
-// Mover el badge al contenedor de acciones
-if (badgeEl) {
-  headerActions.appendChild(badgeEl)
-}
+// Crear badge para mensajes no leídos
+const unreadBadgeContainer = document.createElement("div")
+unreadBadgeContainer.className = "unread-badge-container"
+const unreadBadge = document.createElement("span")
+unreadBadge.id = "unreadBadge"
+unreadBadge.className = "unread-badge hidden"
+unreadBadge.textContent = "0"
+unreadBadgeContainer.appendChild(unreadBadge)
+headerActions.appendChild(unreadBadgeContainer)
 
 /* ---------- estado ---------- */
 let lastMessage = { source: "", payload: "" }
 let unread = 0
 let isNearBottom = true
-let isDarkTheme = false
+let isDarkTheme = true // Tema oscuro por defecto
 
 /* ---------- Configuración del contador de caracteres ---------- */
 charCountEl.className = "char-count"
@@ -50,7 +55,8 @@ document.querySelector(".chat-container").appendChild(scrollDownBtn)
 // Cargar tema guardado
 function loadSavedTheme() {
   const savedTheme = localStorage.getItem("theme")
-  if (savedTheme === "dark") {
+  // Si no hay tema guardado o es "dark", usar tema oscuro (predeterminado)
+  if (!savedTheme || savedTheme === "dark") {
     setDarkTheme()
   } else {
     setLightTheme()
@@ -117,7 +123,8 @@ function scrollToBottom() {
   msgsEl.scrollTop = msgsEl.scrollHeight
   scrollDownBtn.classList.add("hidden")
   unread = 0
-  badgeEl.classList.add("hidden")
+  unreadBadge.textContent = "0"
+  unreadBadge.classList.add("hidden")
   isNearBottom = true
 }
 
@@ -127,9 +134,22 @@ function checkIfNearBottom() {
   if (isNearBottom) {
     scrollDownBtn.classList.add("hidden")
     unread = 0
-    badgeEl.classList.add("hidden")
+    unreadBadge.textContent = "0"
+    unreadBadge.classList.add("hidden")
   } else {
     scrollDownBtn.classList.remove("hidden")
+  }
+}
+
+// Función para actualizar el contador de mensajes no leídos
+function updateUnreadBadge() {
+  if (unread > 0) {
+    unreadBadge.textContent = unread.toString()
+    unreadBadge.classList.remove("hidden")
+    scrollDownBtn.setAttribute("data-count", unread.toString())
+  } else {
+    unreadBadge.classList.add("hidden")
+    scrollDownBtn.removeAttribute("data-count")
   }
 }
 /* ---------- carga inicial (últimos PAGE) ---------- */
@@ -188,8 +208,7 @@ ws.onmessage = (e) => {
     // Si no estamos cerca del final, incrementar contador de no leídos
     if (!isNearBottom && source !== LOCAL_SOURCE) {
       unread++
-      badgeEl.textContent = unread
-      badgeEl.classList.remove("hidden")
+      updateUnreadBadge()
     }
   }
 }
