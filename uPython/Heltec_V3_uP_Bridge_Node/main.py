@@ -68,6 +68,7 @@ MQTT_USER     = getenv(ENV, "MQTT_USER", str, None)
 MQTT_PASS     = getenv(ENV, "MQTT_PASSWORD", str, None)
 MQTT_TOPIC_UP   = getenv(ENV, "MQTT_TOPIC_UP",   str, "lorachat/up").encode()
 MQTT_TOPIC_DOWN = getenv(ENV, "MQTT_TOPIC_DOWN", str, "lorachat/down").encode()
+MQTT_TOPIC_NODES = getenv(ENV, "MQTT_TOPIC_NODES", str, "lorachat/nodes").encode()
 MQTT_QOS      = getenv(ENV, "MQTT_QOS", int, 1)
 MQTT_RETAIN_UP= bool(getenv(ENV, "MQTT_RETAIN_UP", int, 0))
 MQTT_RECON_MAX= getenv(ENV, "MQTT_RECONNECT_MAX", int, 30000)  # ms
@@ -84,15 +85,23 @@ BRIGHTNESS = getenv(ENV, "BRIGHTNESS", int, 200)
 # Tiempo de inactividad antes de apagar la pantalla (5 minutos en ms)
 SCREEN_TIMEOUT = 5 * 60 * 1000
 
+# Intervalo para publicar estado de nodos (30 segundos)
+NODES_STATUS_INTERVAL = 30 * 1000
+
 # ───────── 4. Variables globales ───────────────────────────────────────────
 LINE_H, MAX_LINES = 12, 5
 _lines = [""] * MAX_LINES
 last_activity_time = time.ticks_ms()
+last_nodes_publish = time.ticks_ms()
 screen_active = True
 button = None
 oled = None
 mqttc = None
 lora = None
+
+# Registro de nodos activos
+nodes = {}
+NODE_TIMEOUT = 60 * 1000  # 60 segundos para considerar un nodo offline
 
 # ───────── 5. OLED helpers ───────────────────────────────────────────────
 def activate_screen():
@@ -235,6 +244,7 @@ def init_lora():
                LORA_CS, LORA_DIO1, LORA_RESET, LORA_BUSY)
     err = lora.begin(freq=FREQ, bw=BW, sf=SF, cr=CR, power=TX_POWER, syncWord=SYNC_WORD, blocking=False)
     if err: raise RuntimeError("LoRa init err %d" % err)
+    lora.setBlockingCallback(False, on_receive)
     return lora
 
 # ───────── 7. Node name ─────────────────────────────────────────────────
@@ -292,9 +302,97 @@ def pend_popleft():
     """
     return pending.pop(0)
 
-# ───────── 10. Main loop ─────────────────────────────────────────────────
+# ───────── 10. Funciones de gestión de nodos ─────────────────────────────
+def update_node_status(node_id, rssi=None, snr=None):
+    """
+    Actualiza el estado de un nodo en el registro.
+    :param node_id: Identificador del nodo
+    :param rssi: Valor RSSI (opcional)
+    :param snr: Valor SNR (opcional)
+    :return: None
+    """
+    current_time = time.ticks_ms()
 
-def lora_callback(events):
+    # Actualizar o crear entrada para el nodo
+    if node_id in nodes:
+        nodes[node_id]["last_seen"] = current_time
+        if rssi is not None:
+            nodes[node_id]["rssi"] = rssi
+        if snr is not None:
+            nodes[node_id]["snr"] = snr
+        nodes[node_id]["status"] = "online"
+    else:
+        nodes[node_id] = {
+            "id": node_id,
+            "last_seen": current_time,
+            "rssi": rssi,
+            "snr": snr,
+            "status": "online"
+        }
+
+    oled_log(f"Node {node_id} updated")
+
+def check_nodes_status():
+    """
+    Verifica el estado de todos los nodos y actualiza su estado.
+    :return: None
+    """
+    current_time = time.ticks_ms()
+
+    # Verificar cada nodo
+    for node_id, info in nodes.items():
+        # Si el nodo no se ha visto en NODE_TIMEOUT, marcarlo como offline
+        if time.ticks_diff(current_time, info["last_seen"]) > NODE_TIMEOUT:
+            info["status"] = "offline"
+        else:
+            info["status"] = "online"
+
+    # Publicar estado de nodos si es necesario
+    publish_nodes_status()
+
+def publish_nodes_status():
+    """
+    Publica el estado de todos los nodos a través de MQTT.
+    :return: None
+    """
+    global last_nodes_publish, mqttc
+
+    current_time = time.ticks_ms()
+
+    # Solo publicar si ha pasado el intervalo
+    if time.ticks_diff(current_time, last_nodes_publish) < NODES_STATUS_INTERVAL:
+        return
+
+    # Actualizar timestamp
+    last_nodes_publish = current_time
+
+    # Preparar lista de nodos
+    nodes_list = []
+    for node_id, info in nodes.items():
+        # Convertir tiempo de ticks a segundos desde epoch (aproximado)
+        last_seen_sec = time.time() - (time.ticks_diff(current_time, info["last_seen"]) / 1000)
+
+        nodes_list.append({
+            "id": node_id,
+            "last_seen": last_seen_sec,
+            "rssi": info.get("rssi"),
+            "snr": info.get("snr"),
+            "status": info.get("status", "unknown")
+        })
+
+    # Publicar en MQTT
+    try:
+        payload = ujson.dumps({
+            "nodes": nodes_list,
+            "timestamp": time.time()
+        })
+        mqttc.publish(MQTT_TOPIC_NODES, payload, False, MQTT_QOS)
+        oled_log(f"Nodes status sent ({len(nodes_list)})")
+    except Exception as e:
+        oled_log(f"Nodes pub err: {str(e)[:10]}")
+
+# ───────── 11. LoRa callback ─────────────────────────────────────────────
+def on_receive(events):
     """
     Callback para recibir mensajes LoRa.
     :param events: Eventos LoRa
@@ -306,19 +404,46 @@ def lora_callback(events):
             pkt, st = lora.recv()
             if st == 0 and pkt:
                 try:
-                    # Publicar en MQTT
-                    mqttc.publish(MQTT_TOPIC_UP, pkt, MQTT_RETAIN_UP, MQTT_QOS)
+                    # Obtener métricas LoRa
+                    rssi = lora.getRSSI()
+                    snr = lora.getSNR()
+
+                    # Procesar el paquete
                     try:
                         js = ujson.loads(pkt)
-                        oled_log("RX "+js.get("from","")[-6:]+":"+js.get("message","")[:8])
-                    except:
-                        oled_log("RX pkt: " + pkt.decode()[:10])
+                        sender = js.get("from", "?")
+                        message = js.get("message", "")
+
+                        # Añadir métricas LoRa al paquete
+                        js["rssi"] = rssi
+                        js["snr"] = snr
+
+                        # Actualizar estado del nodo
+                        update_node_status(sender, rssi, snr)
+
+                        # Publicar en MQTT con métricas incluidas
+                        enhanced_pkt = ujson.dumps(js)
+                        mqttc.publish(MQTT_TOPIC_UP, enhanced_pkt, MQTT_RETAIN_UP, MQTT_QOS)
+
+                        oled_log(f"RX {sender[-6:]}:{message[:8]}")
+                        oled_log(f"RSSI:{rssi:.1f} SNR:{snr:.1f}")
+                    except ValueError:
+                        # Si no es JSON, enviar como texto plano con métricas
+                        payload = {
+                            "from": "unknown",
+                            "message": pkt.decode("utf-8", "ignore").strip(),
+                            "rssi": rssi,
+                            "snr": snr
+                        }
+                        mqttc.publish(MQTT_TOPIC_UP, ujson.dumps(payload), MQTT_RETAIN_UP, MQTT_QOS)
+                        oled_log(f"RX raw: {pkt.decode()[:10]}")
                 except Exception as e:
                     oled_log(f"Pub err: {str(e)[:10]}")
                     pend_append(pkt)
         except Exception as e:
             oled_log(f"RX err: {str(e)[:10]}")
 
+# ───────── 12. Main loop ─────────────────────────────────────────────────
 def main():
     """
     Función principal que inicializa el sistema y gestiona la comunicación entre LoRa y MQTT.
@@ -347,6 +472,7 @@ def main():
         import machine
         machine.reset()
 
+    global lora
     lora = init_lora()
     oled_log("LoRa OK")
 
@@ -372,13 +498,18 @@ def main():
         mqttc.connect()
         mqttc.subscribe(MQTT_TOPIC_DOWN, MQTT_QOS)
         oled_log("MQTT OK")
-        # Publicar estado online
-        mqttc.publish(MQTT_TOPIC_UP, ujson.dumps({"from": NODE_NAME, "message": "online"}), True, MQTT_QOS)
+
+        # Publicar estado online - MODIFICADO: Ya no publicamos en el topic principal
+        # Solo registramos el nodo en el registro de nodos
+        update_node_status(NODE_NAME)
+
+        # Publicar inmediatamente el estado de los nodos para notificar que el puente está online
+        publish_nodes_status()
     except Exception as e:
         oled_log(f"MQTT err: {str(e)[:10]}")
 
     # Configurar callback para LoRa
-    lora.setBlockingCallback(False, lora_callback)
+    lora.setBlockingCallback(False, on_receive)
 
     # Bucle principal
     while True:
@@ -390,6 +521,9 @@ def main():
 
         # Verificar si hay que apagar la pantalla
         check_screen_timeout(current_time)
+
+        # Verificar estado de nodos
+        check_nodes_status()
 
         # Reinicio programado cada 24 horas
         if time.time() - start_time > reset_interval:
@@ -425,7 +559,7 @@ def main():
         # Pequeña pausa para evitar saturar la CPU
         time.sleep_ms(10)
 
-# ───────── 11. Manejo de errores y punto de entrada ─────────────────────
+# ───────── 13. Manejo de errores y punto de entrada ─────────────────────
 if __name__ == "__main__":
     try:
         main()

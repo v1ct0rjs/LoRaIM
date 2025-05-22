@@ -117,6 +117,9 @@ const notificationSound = new Audio("/static/sounds/notification.mp3")
 const messageSentSound = new Audio("/static/sounds/message-sent.mp3")
 
 /* ---------- estado ---------- */
+// Añadir después de la definición de variables globales (línea ~50)
+const NODES_TOPIC = "lorachat/nodes"
+const NODE_TIMEOUT = 60000 // 60 segundos para considerar un nodo offline
 let lastMessage = { source: "", payload: "" }
 let unread = 0
 let isNearBottom = true
@@ -284,14 +287,37 @@ function scheduleReconnect() {
   reconnectTimeout = setTimeout(connectWebSocket, delay)
 }
 
+// Modificar la función handleWebSocketMessage para procesar actualizaciones de nodos
 function handleWebSocketMessage(e) {
   try {
     const data = JSON.parse(e.data)
-    const { payload, source = "?", rssi, snr, nodeId } = data
+
+    // Comprobar si es una actualización de nodos
+    if (data.type === "nodes_update" && data.nodes) {
+      // Actualizar la lista de nodos
+      data.nodes.forEach((node) => {
+        updateNodeStatus(node.id, {
+          rssi: node.rssi,
+          snr: node.snr,
+          lastSeen: node.last_seen * 1000, // Convertir a milisegundos
+          status: node.status,
+          source: node.id,
+        })
+      })
+      return
+    }
+
+    const { payload, source = "?", rssi, snr, nodeId, timestamp } = data
 
     // Actualizar estado del nodo si se proporciona un ID de nodo
-    if (nodeId) {
-      updateNodeStatus(nodeId, { rssi, snr, lastSeen: new Date(), source })
+    if (source && source !== "sent" && source !== "?") {
+      updateNodeStatus(source, {
+        rssi,
+        snr,
+        lastSeen: timestamp ? timestamp * 1000 : Date.now(),
+        status: "online",
+        source,
+      })
     }
 
     // Solo añadir burbuja si el mensaje es diferente al último
@@ -337,13 +363,19 @@ function handleWebSocketMessage(e) {
   }
 }
 
+// Modificar la función updateNodeStatus para manejar el estado online/offline
 function updateNodeStatus(nodeId, data) {
+  if (!nodeId) return
+
   const now = new Date()
+  const lastSeen = data.lastSeen ? new Date(data.lastSeen) : now
 
   // Actualizar o crear entrada del nodo
   connectedNodes.set(nodeId, {
     ...data,
-    lastSeen: now,
+    id: nodeId,
+    lastSeen: lastSeen,
+    status: data.status || "online",
   })
 
   // Actualizar la visualización de nodos
@@ -352,14 +384,14 @@ function updateNodeStatus(nodeId, data) {
   // Configurar un temporizador para marcar los nodos como offline después de un tiempo
   setTimeout(() => {
     const node = connectedNodes.get(nodeId)
-    if (node && now - node.lastSeen >= 60000) {
-      // 1 minuto sin actividad
-      node.online = false
+    if (node && now - new Date(node.lastSeen) >= NODE_TIMEOUT) {
+      node.status = "offline"
       renderNodesList()
     }
-  }, 60000)
+  }, NODE_TIMEOUT)
 }
 
+// Modificar la función renderNodesList para usar datos reales
 function renderNodesList() {
   const nodesListEl = document.getElementById("nodesList")
 
@@ -371,27 +403,28 @@ function renderNodesList() {
   let nodesHtml = ""
 
   connectedNodes.forEach((node, nodeId) => {
-    const isOnline = node.lastSeen && new Date() - node.lastSeen < 60000
+    const isOnline = node.status === "online"
     const statusClass = isOnline ? "online" : "offline"
+    const lastSeen = node.lastSeen ? new Date(node.lastSeen * 1000) : new Date()
 
     nodesHtml += `
       <div class="node-item">
         <div class="node-info">
-          <span class="node-name">${nodeId || node.source || "Nodo desconocido"}</span>
+          <span class="node-name">${nodeId || node.id || "Nodo desconocido"}</span>
           <span class="status-indicator ${statusClass}"></span>
         </div>
         ${
           loraMetricsEnabled && node.rssi !== undefined
             ? `
           <div class="node-metrics">
-            <span class="rssi">RSSI: ${node.rssi || "N/A"} dBm</span>
-            <span class="snr">SNR: ${node.snr || "N/A"} dB</span>
+            <span class="rssi">RSSI: ${node.rssi !== null ? node.rssi.toFixed(1) : "N/A"} dBm</span>
+            <span class="snr">SNR: ${node.snr !== null ? node.snr.toFixed(1) : "N/A"} dB</span>
           </div>
         `
             : ""
         }
         <div class="node-last-seen">
-          Última actividad: ${formatTimeDiff(node.lastSeen)}
+          Última actividad: ${formatTimeDiff(lastSeen)}
         </div>
       </div>
     `
@@ -546,7 +579,9 @@ function filterMessages(query) {
   })
 }
 /* ---------- carga inicial (últimos PAGE) ---------- */
+// Modificar la función de carga inicial para cargar también los nodos
 ;(async () => {
+  // Cargar mensajes
   const res = await fetch(`/messages?limit=${PAGE}`)
   const { messages } = await res.json()
 
@@ -567,16 +602,37 @@ function filterMessages(query) {
       prevMsg = { source: m.source, payload: m.payload }
 
       // Actualizar el estado del nodo si hay un ID de nodo
-      if (m.nodeId) {
-        updateNodeStatus(m.nodeId, {
+      if (m.source && m.source !== "sent" && m.source !== "?") {
+        updateNodeStatus(m.source, {
           rssi: m.rssi,
           snr: m.snr,
-          lastSeen: new Date(),
+          lastSeen: m.timestamp ? m.timestamp * 1000 : Date.now(),
+          status: "online",
           source: m.source,
         })
       }
     }
   })
+
+  // Cargar nodos
+  try {
+    const nodesRes = await fetch("/nodes")
+    const { nodes } = await nodesRes.json()
+
+    if (nodes && nodes.length > 0) {
+      nodes.forEach((node) => {
+        updateNodeStatus(node.id, {
+          rssi: node.rssi,
+          snr: node.snr,
+          lastSeen: node.last_seen * 1000, // Convertir a milisegundos
+          status: node.status,
+          source: node.id,
+        })
+      })
+    }
+  } catch (error) {
+    console.error("Error cargando nodos:", error)
+  }
 
   // Guardar el último mensaje para comparar con nuevos WebSocket
   if (messages.length > 0) {

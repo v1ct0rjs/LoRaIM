@@ -87,6 +87,7 @@ def on_message(client, userdata, msg):
         # Extraer métricas LoRa si están disponibles
         rssi = data.get("rssi")
         snr = data.get("snr")
+        message_type = data.get("type")
 
         # Actualizar registro de nodos
         if sender != "sent":
@@ -101,6 +102,11 @@ def on_message(client, userdata, msg):
 
             # Publicar actualización de nodos
             publish_nodes_status()
+
+        # Si es un mensaje de tipo "bridge" o solo contiene "online", no lo enviamos al chat
+        if message_type == "bridge" or message == "online":
+            return
+
     except Exception as e:
         message = payload_str
         sender = "desconocido"
