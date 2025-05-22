@@ -330,7 +330,7 @@ def update_node_status(node_id, rssi=None, snr=None):
             "status": "online"
         }
 
-    oled_log(f"Node {node_id} updated")
+    #oled_log(f"Node {node_id} updated")
 
 def check_nodes_status():
     """
@@ -395,7 +395,7 @@ def publish_nodes_status():
             "timestamp": time.time()
         })
         mqttc.publish(MQTT_TOPIC_NODES, payload, False, MQTT_QOS)
-        oled_log(f"Nodes status sent ({len(nodes_list)})")
+        #oled_log(f"Nodes status sent ({len(nodes_list)})")
     except Exception as e:
         oled_log(f"Nodes pub err: {str(e)[:10]}")
 
