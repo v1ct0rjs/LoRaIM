@@ -92,12 +92,16 @@ def on_message(client, userdata, msg):
         # Actualizar registro de nodos
         if sender != "sent":
             node_id = sender
+            # Determinar si es el nodo puente (los nodos que empiezan con "Node-" son candidatos)
+            is_bridge = node_id.startswith("Node-") and message_type == "bridge"
+
             NODES[node_id] = {
                 "id": node_id,
                 "last_seen": time.time(),
                 "rssi": rssi,
                 "snr": snr,
-                "status": "online"
+                "status": "online",
+                "is_bridge": is_bridge  # Marcar explícitamente si es un nodo puente
             }
 
             # Publicar actualización de nodos
@@ -140,6 +144,10 @@ def publish_nodes_status():
             info["status"] = "offline"
         else:
             info["status"] = "online"
+
+        # Asegurarse de que la propiedad is_bridge esté presente
+        if "is_bridge" not in info:
+            info["is_bridge"] = node_id.startswith("Node-")
 
         nodes_list.append(info)
 
