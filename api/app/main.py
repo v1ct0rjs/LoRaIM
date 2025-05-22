@@ -8,18 +8,23 @@ from paho.mqtt import client as mqtt_client
 from pydantic import BaseModel
 import logging
 import asyncio
-
+import time
+from datetime import datetime
 
 # Configuración MQTT
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
-MQTT_TOPIC_UP   = os.getenv("MQTT_TOPIC_UP",   "lorachat/up")
+MQTT_TOPIC_UP = os.getenv("MQTT_TOPIC_UP", "lorachat/up")
 MQTT_TOPIC_DOWN = os.getenv("MQTT_TOPIC_DOWN", "lorachat/down")
-
+MQTT_TOPIC_NODES = os.getenv("MQTT_TOPIC_NODES", "lorachat/nodes")
 
 # Buffer circular de mensajes
 RECEIVED = deque(maxlen=100)
 clients = []
+
+# Registro de nodos activos
+NODES = {}
+NODE_TIMEOUT = 60  # segundos para considerar un nodo offline
 
 app = FastAPI()
 
@@ -32,8 +37,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class PublishPayload(BaseModel):
     message: str
+
+
+class NodeInfo(BaseModel):
+    id: str
+    last_seen: float
+    rssi: float = None
+    snr: float = None
+    status: str = "online"
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,16 +83,91 @@ def on_message(client, userdata, msg):
         data = json.loads(payload_str)
         message = data.get("message", payload_str)
         sender = data.get("from", "desconocido")
-    except Exception:
+
+        # Extraer métricas LoRa si están disponibles
+        rssi = data.get("rssi")
+        snr = data.get("snr")
+
+        # Actualizar registro de nodos
+        if sender != "sent":
+            node_id = sender
+            NODES[node_id] = {
+                "id": node_id,
+                "last_seen": time.time(),
+                "rssi": rssi,
+                "snr": snr,
+                "status": "online"
+            }
+
+            # Publicar actualización de nodos
+            publish_nodes_status()
+    except Exception as e:
         message = payload_str
         sender = "desconocido"
+        logger.error(f"Error processing message: {e}")
 
     RECEIVED.append({
         "topic": msg.topic,
         "payload": message,
-        "source": sender
+        "source": sender,
+        "rssi": rssi if 'rssi' in locals() else None,
+        "snr": snr if 'snr' in locals() else None,
+        "timestamp": time.time()
     })
     logger.info(f"Received message: {data} from topic: {msg.topic}")
+
+    # Notificar a todos los clientes WebSocket
+    notify_clients()
+
+
+def publish_nodes_status():
+    """
+    Publica el estado de todos los nodos a través de MQTT
+    """
+    # Actualizar estado de nodos (online/offline)
+    now = time.time()
+    nodes_list = []
+
+    for node_id, info in list(NODES.items()):
+        # Verificar si el nodo está activo
+        if now - info["last_seen"] > NODE_TIMEOUT:
+            info["status"] = "offline"
+        else:
+            info["status"] = "online"
+
+        nodes_list.append(info)
+
+    # Publicar estado de nodos
+    try:
+        mqtt.publish(MQTT_TOPIC_NODES, json.dumps({
+            "nodes": nodes_list,
+            "timestamp": now
+        }))
+    except Exception as e:
+        logger.error(f"Error publishing nodes status: {e}")
+
+
+async def check_nodes_status():
+    """
+    Tarea periódica para verificar el estado de los nodos
+    """
+    while True:
+        publish_nodes_status()
+        await asyncio.sleep(15)  # Verificar cada 15 segundos
+
+
+def notify_clients():
+    """
+    Notifica a todos los clientes WebSocket sobre nuevos mensajes
+    """
+    if RECEIVED and clients:
+        last_msg = RECEIVED[-1]
+        for client in clients:
+            try:
+                asyncio.create_task(client.send_json(last_msg))
+            except Exception as e:
+                logger.error(f"Error notifying client: {e}")
+
 
 # Crear cliente MQTT
 mqtt = mqtt_client.Client()
@@ -90,6 +180,7 @@ except Exception as e:
     logger.error(f"Failed to connect to MQTT broker: {e}")
     raise
 
+
 # Endpoints
 @app.get("/")
 async def root():
@@ -99,6 +190,7 @@ async def root():
     """
     return {"status": "ok"}
 
+
 @app.get("/messages/")
 async def get_messages(limit: int = 20, offset: int = 0):
     """
@@ -107,9 +199,30 @@ async def get_messages(limit: int = 20, offset: int = 0):
     """
     total = len(RECEIVED)
     start = max(total - offset - limit, 0)
-    end   = total - offset
-    msgs  = list(RECEIVED)[start:end]
+    end = total - offset
+    msgs = list(RECEIVED)[start:end]
     return {"count": total, "messages": msgs}
+
+
+@app.get("/nodes/")
+async def get_nodes():
+    """
+    Devuelve la lista de nodos y su estado
+    """
+    # Actualizar estado de nodos
+    now = time.time()
+    nodes_list = []
+
+    for node_id, info in list(NODES.items()):
+        # Verificar si el nodo está activo
+        if now - info["last_seen"] > NODE_TIMEOUT:
+            info["status"] = "offline"
+        else:
+            info["status"] = "online"
+
+        nodes_list.append(info)
+
+    return {"nodes": nodes_list}
 
 
 @app.post("/publish/")
@@ -128,9 +241,11 @@ async def publish_message(payload: PublishPayload):
     RECEIVED.append({
         "topic": MQTT_TOPIC_DOWN,
         "payload": payload.message,
-        "source": "sent"
+        "source": "sent",
+        "timestamp": time.time()
     })
     return {"published": out}
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -142,10 +257,24 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     clients.append(websocket)
     try:
+        # Enviar estado inicial de nodos
+        await websocket.send_json({"type": "nodes_update", "nodes": list(NODES.values())})
+
         while True:
             await asyncio.sleep(1)
             if RECEIVED:
                 last_msg = RECEIVED[-1]
                 await websocket.send_json(last_msg)
-    except:
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
         clients.remove(websocket)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Evento de inicio de la aplicación
+    """
+    # Iniciar tarea de verificación de nodos
+    asyncio.create_task(check_nodes_status())
