@@ -42,13 +42,13 @@ BANDWIDTH        = 125.0      # kHz
 SPREADING_FACTOR = 7
 CODING_RATE      = 5          # 4/5
 SYNC_WORD        = 0x34
-TRANSMIT_POWER   = 14         # dBm
+TRANSMIT_POWER   = 0         # dBm
 PAUSE            = 100        # s entre pings automáticos
 
 # ───────── Constantes OLED ──────────────────────────────────────────────────
 OLED_WIDTH  = 128
 OLED_HEIGHT = 64
-BRIGHTNESS  = 255
+BRIGHTNESS  = 0
 LINE_H      = 12
 MAX_LINES   = 5
 
