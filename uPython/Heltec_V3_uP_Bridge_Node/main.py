@@ -380,6 +380,14 @@ def publish_nodes_status():
             "status": info.get("status", "unknown")
         })
 
+    # Añadir el propio nodo puente con la marca is_bridge
+    nodes_list.append({
+        "id": NODE_NAME,
+        "last_seen": time.time(),
+        "status": "online",
+        "is_bridge": True
+    })
+
     # Publicar en MQTT
     try:
         payload = ujson.dumps({
@@ -499,8 +507,16 @@ def main():
         mqttc.subscribe(MQTT_TOPIC_DOWN, MQTT_QOS)
         oled_log("MQTT OK")
 
-        # Publicar estado online - MODIFICADO: Ya no publicamos en el topic principal
-        # Solo registramos el nodo en el registro de nodos
+        # Publicar estado online - MODIFICADO: Ahora publicamos un mensaje especial para identificar el nodo puente
+        bridge_status = {
+            "from": NODE_NAME,
+            "message": "online",
+            "type": "bridge"  # Marcar explícitamente como nodo puente
+        }
+        mqttc.publish(MQTT_TOPIC_UP, ujson.dumps(bridge_status), False, MQTT_QOS)
+        oled_log("Bridge status sent")
+
+        # Registrar el nodo en el registro de nodos
         update_node_status(NODE_NAME)
 
         # Publicar inmediatamente el estado de los nodos para notificar que el puente está online

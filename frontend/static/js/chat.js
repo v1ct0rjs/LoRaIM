@@ -135,6 +135,7 @@ let loraMetricsEnabled = localStorage.getItem("loraMetricsEnabled") === "true"
 let searchTimeout = null
 let searchQuery = ""
 let notificationPermission = "default"
+let bridgeNodeId = null // ID del nodo puente
 
 /* ---------- Configuración del contador de caracteres ---------- */
 charCountEl.className = "char-count"
@@ -272,6 +273,9 @@ function updateConnectionStatus(connected) {
     statusText.textContent = "Desconectado"
     headerEl.classList.remove("online")
   }
+
+  // Actualizar estado del nodo puente
+  updateBridgeNodeStatus()
 }
 
 function scheduleReconnect() {
@@ -302,12 +306,13 @@ function handleWebSocketMessage(e) {
           lastSeen: node.last_seen * 1000, // Convertir a milisegundos
           status: node.status,
           source: node.id,
+          isBridge: node.is_bridge === true, // Usar la propiedad explícita is_bridge
         })
       })
       return
     }
 
-    const { payload, source = "?", rssi, snr, nodeId, timestamp } = data
+    const { payload, source = "?", rssi, snr, nodeId, timestamp, type } = data
 
     // Actualizar estado del nodo si se proporciona un ID de nodo
     if (source && source !== "sent" && source !== "?") {
@@ -317,7 +322,13 @@ function handleWebSocketMessage(e) {
         lastSeen: timestamp ? timestamp * 1000 : Date.now(),
         status: "online",
         source,
+        isBridge: type === "bridge", // Marcar como puente si el tipo es "bridge"
       })
+    }
+
+    // Ignorar mensajes de tipo "bridge" o mensajes que solo contienen "online"
+    if (type === "bridge" || payload === "online") {
+      return
     }
 
     // Solo añadir burbuja si el mensaje es diferente al último
@@ -363,12 +374,33 @@ function handleWebSocketMessage(e) {
   }
 }
 
+// Función para actualizar el estado del nodo puente basado en la conexión WebSocket
+function updateBridgeNodeStatus() {
+  // Actualizar el estado de todos los nodos marcados como puente
+  connectedNodes.forEach((node, nodeId) => {
+    if (node.isBridge) {
+      bridgeNodeId = nodeId // Guardar el ID del nodo puente
+      node.status = wsConnected ? "online" : "offline"
+      node.lastSeen = new Date()
+    }
+  })
+
+  // Actualizar la visualización de nodos
+  renderNodesList()
+}
+
 // Modificar la función updateNodeStatus para manejar el estado online/offline
 function updateNodeStatus(nodeId, data) {
   if (!nodeId) return
 
   const now = new Date()
   const lastSeen = data.lastSeen ? new Date(data.lastSeen) : now
+  const isBridge = data.isBridge === true
+
+  // Si es un nodo puente, actualizar el bridgeNodeId
+  if (isBridge) {
+    bridgeNodeId = nodeId
+  }
 
   // Actualizar o crear entrada del nodo
   connectedNodes.set(nodeId, {
@@ -376,19 +408,23 @@ function updateNodeStatus(nodeId, data) {
     id: nodeId,
     lastSeen: lastSeen,
     status: data.status || "online",
+    isBridge: isBridge,
   })
 
   // Actualizar la visualización de nodos
   renderNodesList()
 
   // Configurar un temporizador para marcar los nodos como offline después de un tiempo
-  setTimeout(() => {
-    const node = connectedNodes.get(nodeId)
-    if (node && now - new Date(node.lastSeen) >= NODE_TIMEOUT) {
-      node.status = "offline"
-      renderNodesList()
-    }
-  }, NODE_TIMEOUT)
+  // Solo para nodos que no son puente (los puentes se actualizan con el estado de WebSocket)
+  if (!isBridge) {
+    setTimeout(() => {
+      const node = connectedNodes.get(nodeId)
+      if (node && !node.isBridge && now - new Date(node.lastSeen) >= NODE_TIMEOUT) {
+        node.status = "offline"
+        renderNodesList()
+      }
+    }, NODE_TIMEOUT)
+  }
 }
 
 // Modificar la función renderNodesList para usar datos reales
@@ -402,15 +438,56 @@ function renderNodesList() {
 
   let nodesHtml = ""
 
-  connectedNodes.forEach((node, nodeId) => {
+  // Separar nodos puente de nodos LoRa remotos
+  const bridgeNodes = Array.from(connectedNodes.entries()).filter(([nodeId, node]) => node.isBridge)
+  const loraNodes = Array.from(connectedNodes.entries()).filter(([nodeId, node]) => !node.isBridge)
+
+  // Mostrar primero el nodo puente
+  bridgeNodes.forEach(([nodeId, node]) => {
     const isOnline = node.status === "online"
     const statusClass = isOnline ? "online" : "offline"
-    const lastSeen = node.lastSeen ? new Date(node.lastSeen * 1000) : new Date()
+    const lastSeen = node.lastSeen ? new Date(node.lastSeen) : new Date()
 
     nodesHtml += `
-      <div class="node-item">
+      <div class="node-item bridge-node">
         <div class="node-info">
-          <span class="node-name">${nodeId || node.id || "Nodo desconocido"}</span>
+          <span class="node-name">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="bridge-icon">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            ${nodeId} (Puente Local)
+          </span>
+          <span class="status-indicator ${statusClass}"></span>
+        </div>
+        <div class="node-description">
+          Nodo puente conectado a la red local
+        </div>
+        <div class="node-last-seen">
+          Estado: ${isOnline ? "Conectado" : "Desconectado"}
+        </div>
+      </div>
+    `
+  })
+
+  // Luego mostrar los nodos LoRa remotos
+  loraNodes.forEach(([nodeId, node]) => {
+    const isOnline = node.status === "online"
+    const statusClass = isOnline ? "online" : "offline"
+    const lastSeen = node.lastSeen ? new Date(node.lastSeen) : new Date()
+
+    nodesHtml += `
+      <div class="node-item lora-node">
+        <div class="node-info">
+          <span class="node-name">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lora-icon">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+              <path d="M2 17l10 5 10-5"></path>
+              <path d="M2 12l10 5 10-5"></path>
+            </svg>
+            ${nodeId}
+          </span>
           <span class="status-indicator ${statusClass}"></span>
         </div>
         ${
@@ -429,6 +506,11 @@ function renderNodesList() {
       </div>
     `
   })
+
+  // Si no hay nodos, mostrar mensaje
+  if (bridgeNodes.length === 0 && loraNodes.length === 0) {
+    nodesHtml = '<div class="no-nodes">No hay nodos conectados</div>'
+  }
 
   nodesListEl.innerHTML = nodesHtml
 }
@@ -627,6 +709,7 @@ function filterMessages(query) {
           lastSeen: node.last_seen * 1000, // Convertir a milisegundos
           status: node.status,
           source: node.id,
+          isBridge: node.is_bridge === true, // Usar la propiedad explícita is_bridge
         })
       })
     }
@@ -797,3 +880,6 @@ searchInput.addEventListener("keydown", (e) => {
 
 // Actualizar la lista de nodos cada minuto
 setInterval(renderNodesList, 60000)
+
+// Actualizar estado del nodo puente cada 5 segundos
+setInterval(updateBridgeNodeStatus, 5000)
