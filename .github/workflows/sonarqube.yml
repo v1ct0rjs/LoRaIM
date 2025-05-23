@@ -23,14 +23,21 @@ jobs:
         with:
           fetch-depth: 0  # full history para análisis preciso de PR
 
+      # --- Runtime requirements ------------------------------------------------
+      - name: Set up JDK 17 (scanner requirement)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
 
+      # Configura Python solo si hay scripts .py en el repo
       - name: Set up Python
         if: ${{ hashFiles('**/*.py') != '' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      
+      # Instala dependencias si existe requirements.txt
       - name: Install dependencies (optional)
         run: |
           python -m pip install --upgrade pip
@@ -38,8 +45,9 @@ jobs:
             pip install -r requirements.txt
           fi
 
+      # --- SonarQube -----------------------------------------------------------------
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v1
+        uses: SonarSource/sonarqube-scan-action@v4  # v4 usa composite action (sin Docker) y respeta JDK 17
         env:
           SONAR_HOST_URL: "https://c8d4-83-56-77-88.ngrok-free.app/"
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
