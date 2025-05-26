@@ -522,75 +522,53 @@ body {
   font-size: 0.8rem;
 }
 
-/* --------------  MÓVILES ≤ 640 px -------------- */
+/* ----------  Ajustes extra para MÓVILES ≤ 640 px  ---------- */
 @media (max-width: 640px) {
 
-  /* ========== 1. Reset generales ========== */
-  html, body{                /* elimina cualquier espacio indeseado */
-    margin: 0;
-    padding: 0;
-    height: 100%;
-  }
-
-  /* Contenedor raíz de tu app (el que envuelve TODO) */
-  .chat-container{
-    position: fixed;         /* ocupa la pantalla completa */
-    inset: 0;                /* top/right/bottom/left = 0 */
-    max-width: none;
-    margin: 0;
-    border-radius: 0;
-  }
-
-  /* ========== 2. Cabecera ========== */
-  .chat-header{
-    /* con flex evitamos que los bloques se apilen */
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .5rem;
-    padding: .4rem .6rem env(safe-area-inset-top) .6rem; /* respeta notch/iPhone */
-  }
-
-  /* Logo */
+  /* 1️⃣  LOGO fuera en móvil */
   .header-logo{
-    flex-shrink: 0;
-    width: 28px;
-    height: 28px;
+    display: none;          /* adiós logo */
   }
 
-  /* Título: “LoRa Instant Messenger” */
-  .header-title{
-    /*  ───  estas 3 líneas evitan el salto en 3 filas ─── */
-    white-space: nowrap;           /* no romper líneas                */
-    overflow: hidden;              /* si falta ancho, oculta lo extra */
-    text-overflow: ellipsis;       /* … al final                      */
-    font-size: 1rem;               /* un poco más pequeño en móvil    */
-    font-weight: 600;
+  /* 2️⃣  Evitar distorsión de cualquier img (por si queda otra) */
+  img{
+    max-width: 100%;
+    height: auto;           /* mantiene la relación de aspecto */
   }
-  /* Si el HTML tiene <br>, los ocultamos solo en móvil  */
-  .header-title br{ display: none; }
 
-  /* Estado “Conectado” + engranaje */
-  .status-wrapper{                 /* o la clase que use tu div derecho */
+  /* 3️⃣  Footer / formulario de envío ------------------------ */
+  .send-form{
     display: flex;
     align-items: center;
-    gap: .25rem;
-    flex-shrink: 0;                /* que nunca se colapse             */
+    gap: .5rem;
+    padding: .5rem .6rem calc(.5rem + env(safe-area-inset-bottom)) .6rem;
+    /* ↑ espacio extra en el borde inferior para móviles con “barrita” */
+    background: var(--bg-elevated, #131313);   /* color de fondo que uses */
+    border-top: 1px solid #303030;             /* línea separadora sutil  */
   }
 
-  /* ========== 3. Zona de mensajes y formulario ========== */
-
-  .messages-container{
-    /* la cabecera ocupa su alto, el resto es scroll de mensajes */
-    flex: 1 1 auto;
-    overflow-y: auto;
-    padding: .75rem .5rem;
-    gap: .4rem;
-  }
-
-  /* Ajuste rápido al input/botón (por si salen del viewport) */
-  .send-form input{
-    flex: 1 1 auto;
+  /* Input de texto */
+  .send-form input[type="text"],
+  .send-form textarea{
+    flex: 1 1 auto;       /* crece/encoge */
+    min-width: 0;         /* evita overflow */
     font-size: 1rem;
+    padding: .55rem .75rem;
+  }
+
+  /* Contador de caracteres (suponiendo .char-counter) */
+  .char-counter{
+    font-size: .75rem;
+    opacity: .7;
+    flex-shrink: 0;       /* no se colapsa */
+  }
+
+  /* Botón de enviar */
+  .send-form button{
+    flex-shrink: 0;
+    padding: .45rem .7rem;
+    font-size: 1.2rem;
+    line-height: 1;       /* mantiene el icono centrado */
   }
 }
+
