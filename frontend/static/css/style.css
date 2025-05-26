@@ -522,55 +522,75 @@ body {
   font-size: 0.8rem;
 }
 
-/* ─────────────  MÓVILES ≤ 640 px  ───────────── */
+/* --------------  MÓVILES ≤ 640 px -------------- */
 @media (max-width: 640px) {
-  /* Contenedor principal */
-  .chat-container{
-    max-width: 100%;
-    height: 100dvh;               /* 100 % de la ventana visible */
-    border-radius: 0;
-    box-shadow: none;
-  }
-  /* Cabecera */
-  .chat-header{
-    padding: .5rem 1rem;
-  }
-  .header-title span{
-    font-size: 1rem;
-    line-height: 1.2;
-  }
-  .header-logo{
-    width: 32px;                  /* Logo algo más pequeño */
-    height: 32px;
+
+  /* ========== 1. Reset generales ========== */
+  html, body{                /* elimina cualquier espacio indeseado */
+    margin: 0;
+    padding: 0;
+    height: 100%;
   }
 
-  /* Lista de mensajes */
+  /* Contenedor raíz de tu app (el que envuelve TODO) */
+  .chat-container{
+    position: fixed;         /* ocupa la pantalla completa */
+    inset: 0;                /* top/right/bottom/left = 0 */
+    max-width: none;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  /* ========== 2. Cabecera ========== */
+  .chat-header{
+    /* con flex evitamos que los bloques se apilen */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    padding: .4rem .6rem env(safe-area-inset-top) .6rem; /* respeta notch/iPhone */
+  }
+
+  /* Logo */
+  .header-logo{
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+  }
+
+  /* Título: “LoRa Instant Messenger” */
+  .header-title{
+    /*  ───  estas 3 líneas evitan el salto en 3 filas ─── */
+    white-space: nowrap;           /* no romper líneas                */
+    overflow: hidden;              /* si falta ancho, oculta lo extra */
+    text-overflow: ellipsis;       /* … al final                      */
+    font-size: 1rem;               /* un poco más pequeño en móvil    */
+    font-weight: 600;
+  }
+  /* Si el HTML tiene <br>, los ocultamos solo en móvil  */
+  .header-title br{ display: none; }
+
+  /* Estado “Conectado” + engranaje */
+  .status-wrapper{                 /* o la clase que use tu div derecho */
+    display: flex;
+    align-items: center;
+    gap: .25rem;
+    flex-shrink: 0;                /* que nunca se colapse             */
+  }
+
+  /* ========== 3. Zona de mensajes y formulario ========== */
+
   .messages-container{
+    /* la cabecera ocupa su alto, el resto es scroll de mensajes */
+    flex: 1 1 auto;
+    overflow-y: auto;
     padding: .75rem .5rem;
     gap: .4rem;
   }
-  .message{
-    max-width: 85%;               /* Burbujas un poco más anchas */
-    font-size: .9rem;
-  }
 
-  /* Formulario de envío */
-  .send-form{
-    gap: .5rem;
-  }
+  /* Ajuste rápido al input/botón (por si salen del viewport) */
   .send-form input{
-    flex: 1 1 auto;               /* Que crezca y se encoja */
+    flex: 1 1 auto;
     font-size: 1rem;
-    padding: .6rem .8rem;
   }
-  .send-form button{
-    padding: 0 .9rem;
-    font-size: 1.25rem;
-  }
-}
-
-/* ─────────────  TABLETS ≤ 768 px  ───────────── */
-@media (max-width: 768px) {
-  .chat-container{ max-width: 95%; }
-  .header-title span{ font-size: 1.1rem; }
 }
