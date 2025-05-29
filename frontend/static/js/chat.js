@@ -1,4 +1,4 @@
-const LOCAL_SOURCE = "sent"
+const LOCAL_SOURCE = "web_user_" + Date.now()
 const PAGE = 50 // carga inicial
 const MAX_CHARS = 150 // máximo de caracteres permitidos
 const SCROLL_THRESHOLD = 100 // píxeles desde el fondo para considerar "cerca del final"
@@ -203,18 +203,14 @@ recordAudioBtn.addEventListener("click", async () => {
         const filename = `voice_msg_${Date.now()}.${mediaRecorder.mimeType.split("/")[1].split(";")[0]}`
 
         const formData = new FormData()
-        formData.append("file", audioBlob, filename)
-        // Añadir un campo para indicar que es para transmisión LoRa directa
-        // y el tipo de contenido original. El backend decidirá el formato final para LoRa.
-        formData.append(
-          "metadata",
-          JSON.stringify({
-            action: "send_lora_audio", // Instrucción para el backend/puente
-            original_content_type: mediaRecorder.mimeType,
-            filename: filename,
-            source_id: "web_frontend_user", // O un ID de usuario real
-          }),
-        )
+        const metadata = {
+          action: "send_lora_audio",
+          original_content_type: audioBlob.type,
+          filename: `voice_message_${Date.now()}.${audioBlob.type.split("/")[1] || "webm"}`,
+          source_id: LOCAL_SOURCE,
+        }
+        formData.append("metadata_json", JSON.stringify(metadata))
+        formData.append("file", audioBlob, metadata.filename)
 
         try {
           // Mostrar mensaje de "Enviando audio..." en la UI localmente
@@ -225,7 +221,7 @@ recordAudioBtn.addEventListener("click", async () => {
             content_type: "system_message", // Un tipo especial para mensajes del sistema
           })
 
-          const response = await fetch("/publish", {
+          const response = await fetch("/command_bridge/", {
             method: "POST",
             body: formData,
           })
@@ -281,16 +277,14 @@ uploadImageBtn.addEventListener("change", async (event) => {
   const file = event.target.files[0]
   if (file) {
     const formData = new FormData()
+    const metadata = {
+      action: "send_lora_image", // Similar para imágenes
+      original_content_type: file.type,
+      filename: file.name,
+      source_id: LOCAL_SOURCE,
+    }
+    formData.append("metadata_json", JSON.stringify(metadata))
     formData.append("file", file, file.name)
-    formData.append(
-      "metadata",
-      JSON.stringify({
-        action: "send_lora_image", // Similar para imágenes
-        original_content_type: file.type,
-        filename: file.name,
-        source_id: "web_frontend_user",
-      }),
-    )
 
     try {
       addBubble({
@@ -300,7 +294,7 @@ uploadImageBtn.addEventListener("change", async (event) => {
         content_type: "system_message",
       })
 
-      const response = await fetch("/publish", {
+      const response = await fetch("/command_bridge/", {
         method: "POST",
         body: formData,
       })
@@ -832,71 +826,17 @@ function addBubble({
 
 // En la carga inicial de mensajes:
 // ;(async () => {
-const storedMessages = localStorage.getItem("chatMessages")
-let messages = []
-if (storedMessages) {
-  try {
-    messages = JSON.parse(storedMessages)
-  } catch (error) {
-    console.error("Error parsing stored messages:", error)
-    localStorage.removeItem("chatMessages") // Limpiar si hay error
-  }
-}
-
-// Invertir el orden de los mensajes para mostrar los más recientes primero
-messages.reverse()
-
-// Limpiar el contenedor de mensajes antes de agregar los mensajes cargados
-msgsEl.innerHTML = ""
-
-// Variables para evitar duplicados visuales
-// let prevMsg = { source: null, payload: null, timestamp: null };
-
-messages.forEach((m) => {
-  // Evitar duplicados visuales estrictos (podría ser necesario ajustar esta lógica)
-  // if (m.source !== prevMsg.source || m.payload !== prevMsg.payload || m.timestamp !== prevMsg.timestamp) {
-  let displayPayload = m.payload
-  if (
-    (m.content_type && m.content_type.startsWith("audio/")) ||
-    (m.content_type && m.content_type.startsWith("image/"))
-  ) {
-    displayPayload = m.filename || (m.content_type.startsWith("audio/") ? "Mensaje de voz" : "Imagen")
-  }
-
-  addBubble({
-    payload: displayPayload,
-    source: m.source,
-    time: new Date(m.timestamp ? m.timestamp * 1000 : Date.now()).toLocaleTimeString().slice(0, 5),
-    metrics: m.rssi !== undefined || m.snr !== undefined ? { rssi: m.rssi, snr: m.snr } : {},
-    content_type: m.content_type || "text/plain",
-    data_b64: m.data_b64,
-  })
-  // prevMsg = { source: m.source, payload: displayPayload, timestamp: m.timestamp }; // Actualizar prevMsg
-
-  if (m.source && m.source !== "sent" && m.source !== "?") {
-    updateNodeStatus(m.source, {
-      rssi: m.rssi,
-      snr: m.snr,
-      lastSeen: m.timestamp ? m.timestamp * 1000 : Date.now(),
-      status: "online",
-      source: m.source,
-      isBridge: m.is_bridge === true,
-    })
-  }
-  // }
-})
-// ... })();
 
 /* ---------- enviar ---------- */
 formEl.addEventListener("submit", async (e) => {
   e.preventDefault()
-  const txt = inputEl.value.trim()
-  if (!txt || txt.length > MAX_CHARS) return
+  const textMessage = inputEl.value.trim()
+  if (!textMessage || textMessage.length > MAX_CHARS) return
 
   // Mostrar inmediatamente el mensaje enviado en el chat
   const time = new Date().toLocaleTimeString().slice(0, 5)
   addBubble({
-    payload: txt,
+    payload: textMessage,
     source: LOCAL_SOURCE,
     time: time,
   })
@@ -907,14 +847,16 @@ formEl.addEventListener("submit", async (e) => {
   }
 
   // Actualizar el último mensaje para evitar duplicados
-  lastMessage = { source: LOCAL_SOURCE, payload: txt }
+  lastMessage = { source: LOCAL_SOURCE, payload: textMessage }
 
   // Enviar al servidor
   try {
-    await fetch("/publish", {
+    const payload = { message: textMessage, source_id: LOCAL_SOURCE }
+    await fetch("/publish_text", {
+      // <--- NEW ENDPOINT
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: txt }),
+      body: JSON.stringify(payload),
     })
   } catch (error) {
     console.error("Error al enviar mensaje:", error)

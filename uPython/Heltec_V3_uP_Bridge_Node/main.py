@@ -249,7 +249,7 @@ def wifi_connect():
       except Exception as e:
           oled_log(f"WiFi err: {str(e)[:10]}")
 
-  return wlan.ifconfig()[0] if wlan.isconnected() else "NO-WIFI"
+  return wlan.ifconfig()[0] if wlan.isconnected else "NO-WIFI"
 
 def init_lora():
   """
@@ -316,7 +316,7 @@ def on_bridge_command(topic, msg_bytes):
 
       command = data.get("command")
       if command == "transmit_lora_data":
-          content_type = data.get("content_type") # ej. "audio/webm"
+          content_type = data.get("original_content_type") # ej. "audio/webm"
           filename = data.get("filename", "audio.dat")
           b64_data = data.get("data_b64")
           from_user = data.get("from_user", "web") # Quién lo originó en la web
@@ -384,6 +384,17 @@ def on_bridge_command(topic, msg_bytes):
               # Esto debe calcularse según el tiempo en el aire.
               time.sleep_ms(500) # Ajustar esto cuidadosamente!
           oled_log(f"TX {filename[:6]} done")
+      elif command == "send_text_message":
+          text_message = data.get("text_message", "")
+          from_user = data.get("from_user", "web")
+
+          if not text_message:
+              oled_log("No text in cmd")
+              return
+
+          lora_pkt = ujson.dumps({"from": from_user, "message": text_message}).encode() + b"\n"
+          lora.send(lora_pkt)
+          oled_log(f"TX LoRa txt: {text_message[:10]}")
       else:
           oled_log(f"Cmd desc: {command}")
 

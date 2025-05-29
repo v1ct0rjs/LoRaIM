@@ -1,43 +1,40 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, File, UploadFile, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import json
 import time
 import paho.mqtt.client as paho
-from paho import mqtt
+from paho import mqtt # For mqtt.client.ssl.PROTOCOL_TLS
 import logging
+from typing import Optional, List
+import base64
+import os
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ... (otros imports)
-from fastapi import File, UploadFile, Form
-from typing import Optional
-import base64
-import os  # Para obtener variables de entorno
-
 app = FastAPI()
 
 # MQTT Configuration
-MQTT_CLIENT_ID = f'fastapi_mqtt_{time.time()}'
-MQTT_BROKER = os.getenv("MQTT_BROKER", "test.mosquitto.org")  # Use environment variable or default
-MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))  # Use environment variable or default
-MQTT_TOPIC_UP = "chat/up"
-MQTT_TOPIC_DOWN = "chat/down"
-MQTT_TOPIC_NODES = "nodes/status"
+MQTT_CLIENT_ID = f'fastapi_mqtt_{int(time.time())}' # Use int for time
+MQTT_BROKER = os.getenv("MQTT_BROKER", "test.mosquitto.org")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "akyvqaco") # Store credentials securely
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "iJ9JikQMjJkc") # Store credentials securely
 
-# Asumir que el ID del nodo puente del usuario se conoce o se configura
-# Para este ejemplo, lo leeremos de una variable de entorno o usaremos un default.
-# En una aplicación real, esto podría venir de la autenticación del usuario.
-USER_BRIDGE_ID = os.getenv("USER_DEFAULT_BRIDGE_ID", "default_bridge_node")  # El ID del nodo puente local del usuario
+MQTT_TOPIC_UP = "chat/up" # General messages from LoRa nodes/bridges
+MQTT_TOPIC_DOWN = "chat/down" # General messages to LoRa nodes/bridges (e.g., text from web)
+MQTT_TOPIC_NODES_STATUS = "nodes/status" # Node status updates
+MQTT_TOPIC_BRIDGE_COMMAND_PREFIX = "lora_bridge" # e.g., lora_bridge/[BRIDGE_ID]/command
+
+USER_DEFAULT_BRIDGE_ID = os.getenv("USER_DEFAULT_BRIDGE_ID", "default_bridge_node")
 
 # Data Structures
-RECEIVED = []
-NODES = {}
-CONNECTIONS = []
+RECEIVED_MESSAGES: List[dict] = [] # Store received messages for chat history
+NODES_STATUS: dict = {} # Store status of known nodes
 
-
+# Connection Manager for WebSockets
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -45,301 +42,291 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        logger.info(f"WebSocket connected: {websocket.client}")
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            logger.info(f"WebSocket disconnected: {websocket.client}")
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
+        try:
+            await websocket.send_text(message)
+        except Exception as e:
+            logger.error(f"Error sending personal message: {e}")
+            self.disconnect(websocket)
 
     async def broadcast(self, message: str):
-        for connection in self.active_connections:
+        for connection in list(self.active_connections): # Iterate over a copy
             try:
                 await connection.send_text(message)
             except Exception as e:
-                logger.error(f"Error broadcasting message to a client: {e}")
-                self.disconnect(connection)  # Remove problematic connection
-
+                logger.error(f"Error broadcasting message to {connection.client}: {e}")
+                self.disconnect(connection)
 
 manager = ConnectionManager()
 
-
 # Pydantic Models
-class PublishPayload(BaseModel):
-    topic: str
+class PublishTextPayload(BaseModel): # For simple text messages from web to MQTT_TOPIC_DOWN
     message: str
-    source: str
+    source_id: Optional[str] = "web_client"
 
-
-class NodeStatus(BaseModel):
+class NodeStatusUpdate(BaseModel):
     id: str
-    status: str
+    status: str # "online", "offline"
     last_seen: float
     rssi: Optional[int] = None
     snr: Optional[float] = None
     is_bridge: Optional[bool] = False
 
-
-class PublishMetadata(BaseModel):
-    action: str  # e.g., "send_lora_audio", "send_lora_image", "send_text"
-    original_content_type: Optional[str] = None
+class BridgeCommandMetadata(BaseModel): # For commands from web to bridge via MQTT
+    action: str # e.g., "send_lora_audio", "send_lora_text"
+    original_content_type: Optional[str] = None # e.g., "audio/webm"
     filename: Optional[str] = None
     source_id: Optional[str] = "web_client"
-    # Podrías añadir target_node_id si quieres enviar a un nodo LoRa específico
+    text_message: Optional[str] = None # For text messages to be sent via LoRa
 
-
-# MQTT Client Setup
+# --- MQTT Callback Definitions ---
 def on_connect(client, userdata, flags, rc, properties=None):
-    logger.info("MQTT Connected with result code " + str(rc))
-    client.subscribe(MQTT_TOPIC_UP, qos=1)
-    # client.subscribe("lora_bridge/+/status", qos=1) # Suscribirse a todos los estados de los puentes
+    if rc == 0:
+        logger.info(f"MQTT Connected successfully to {MQTT_BROKER}")
+        client.subscribe(MQTT_TOPIC_UP, qos=1)
+        client.subscribe(f"{MQTT_TOPIC_BRIDGE_COMMAND_PREFIX}/+/status", qos=1) # Status from all bridges
+        client.subscribe(MQTT_TOPIC_NODES_STATUS, qos=1) # General node status topic
+        # Add other necessary subscriptions here
+    else:
+        logger.error(f"MQTT Connection failed with result code {rc}")
+
+def on_disconnect(client, userdata, rc, properties=None): # Added properties for MQTTv5
+    logger.warning(f"MQTT Disconnected with result code {rc}. Will attempt to reconnect.")
+    # Reconnect logic can be added here if needed, though paho-mqtt handles some of it.
+
+def on_message(client, userdata, msg):
+    """
+    Callback for when a message is received from MQTT.
+    """
+    payload_str = ""
+    try:
+        payload_str = msg.payload.decode()
+        data = json.loads(payload_str)
+        logger.info(f"MQTT message received on topic '{msg.topic}': {data}")
+
+        # Determine if it's a chat message or a status update
+        is_chat_message = True
+
+        # Node/Bridge Status Updates
+        if msg.topic.startswith(MQTT_TOPIC_BRIDGE_COMMAND_PREFIX) and msg.topic.endswith("/status"):
+            node_id = data.get("id", msg.topic.split('/')[-2]) # Get ID from payload or topic
+            is_chat_message = False # This is a status message
+        elif msg.topic == MQTT_TOPIC_NODES_STATUS:
+            node_id = data.get("id")
+            is_chat_message = False
+        else: # Assumed to be a chat message from MQTT_TOPIC_UP
+            node_id = data.get("node_id_lora", data.get("from", "desconocido"))
+
+        # Update NODES_STATUS
+        if node_id and node_id not in ["web_client", "sent", "?", "desconocido", "desconocido_raw"]:
+            current_time = time.time()
+            NODES_STATUS[node_id] = {
+                "id": node_id,
+                "last_seen": data.get("timestamp", current_time),
+                "rssi": data.get("rssi"),
+                "snr": data.get("snr"),
+                "status": data.get("status", "online"),
+                "is_bridge": data.get("is_bridge", False) or msg.topic.startswith(MQTT_TOPIC_BRIDGE_COMMAND_PREFIX)
+            }
+            # Consider broadcasting node status updates to websockets if needed
+            # await manager.broadcast(json.dumps({"type": "node_update", "data": NODES_STATUS[node_id]}))
+
+        if is_chat_message:
+            # Prepare message for WebSocket clients
+            chat_payload = {
+                "topic": msg.topic,
+                "payload": data.get("message", data.get("filename", "binary_data")),
+                "source": data.get("from", "desconocido"), # Who sent it (bridge or node)
+                "node_id_lora": data.get("node_id_lora", data.get("from", "desconocido")), # Original LoRa sender
+                "rssi": data.get("rssi"),
+                "snr": data.get("snr"),
+                "content_type": data.get("content_type", "text/plain"),
+                "data_b64": data.get("data_b64"),
+                "filename": data.get("filename"),
+                "timestamp": data.get("timestamp", time.time())
+            }
+            RECEIVED_MESSAGES.append(chat_payload)
+            if len(RECEIVED_MESSAGES) > 100: # Keep buffer size limited
+                RECEIVED_MESSAGES.pop(0)
+
+            # Broadcast to WebSocket clients
+            # This needs to be async, so we schedule it in the event loop
+            # For simplicity, if on_message is not async, you might need another way
+            # or make on_message async and handle it carefully.
+            # A common pattern is to put messages into an asyncio.Queue and have another task process it.
+            # For now, direct broadcast (will block if manager.broadcast is slow).
+            # Consider making manager.broadcast put items in a queue for an async task.
+            import asyncio
+            async def do_broadcast():
+                await manager.broadcast(json.dumps(chat_payload))
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(do_broadcast())
+                else:
+                    logger.warning("No running event loop to schedule broadcast.")
+            except RuntimeError: # If no event loop is set
+                 logger.warning("RuntimeError: No current event loop for broadcast.")
 
 
-def on_disconnect(client, userdata, rc):
-    logger.info("MQTT Disconnected with result code " + str(rc))
+    except json.JSONDecodeError:
+        logger.warning(f"MQTT message on topic '{msg.topic}' is not valid JSON: {payload_str[:100]}")
+        # Handle as raw text if needed, or ignore
+        chat_payload = {
+            "topic": msg.topic, "payload": payload_str, "source": "unknown_raw_sender",
+            "content_type": "text/plain", "timestamp": time.time()
+        }
+        RECEIVED_MESSAGES.append(chat_payload)
+        # await manager.broadcast(json.dumps(chat_payload)) # Similar async consideration
+    except Exception as e:
+        logger.error(f"Error processing MQTT message on topic '{msg.topic}': {e}. Payload: {payload_str[:100]}")
 
-
-def mqtt_connect():
-    client = paho.Client(client_id=MQTT_CLIENT_ID, userdata=None, protocol=paho.MQTTv5)
+# --- MQTT Client Setup ---
+def mqtt_connect_client():
+    client = paho.Client(client_id=MQTT_CLIENT_ID, protocol=paho.MQTTv5)
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
-    client.on_message = on_message  # Assign the message callback
-    client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
-    client.username_pw_set("akyvqaco", "iJ9JikQMjJkc")
-    client.connect(MQTT_BROKER, MQTT_PORT)
+    client.on_message = on_message # Assign the message callback HERE
+
+    if MQTT_USERNAME and MQTT_PASSWORD:
+        client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+
+    # Configure TLS if your broker requires it (e.g., test.mosquitto.org often does)
+    # For test.mosquitto.org, port 8883 is typically TLS, 1883 is non-TLS.
+    # If using port 1883, TLS might not be needed or might be optional.
+    # If using port 8883 (or your broker needs TLS on 1883), uncomment and configure:
+    if MQTT_PORT == 8883 or MQTT_BROKER == "test.mosquitto.org": # common for test.mosquitto.org
+         client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
+
+
+    try:
+        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+        logger.info(f"Attempting to connect to MQTT broker {MQTT_BROKER}:{MQTT_PORT}...")
+    except Exception as e:
+        logger.error(f"MQTT connection failed: {e}")
+        # Handle connection failure (e.g., retry logic or exit)
+        raise # Reraise to stop app if MQTT is critical
     return client
 
+mqtt_client = mqtt_connect_client()
+mqtt_client.loop_start() # Start a background thread for MQTT network loop
 
-mqtt = mqtt_connect()
-mqtt.loop_start()
-
-
-# FastAPI Endpoints
+# --- FastAPI Endpoints ---
 @app.get("/")
-async def get():
-    return HTMLResponse(open("api/app/index.html").read())
-
+async def get_root():
+    # Simple HTML for testing, or serve your actual frontend
+    return HTMLResponse("<h1>LoRaIM API Backend</h1><p>WebSocket at /ws</p>")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-    CONNECTIONS.append(websocket)
+    # Send recent message history to new client
+    for msg_data in list(RECEIVED_MESSAGES)[-20:]: # Send last 20 messages
+        await manager.send_personal_message(json.dumps(msg_data), websocket)
+    # Send current node statuses
+    await manager.send_personal_message(json.dumps({"type": "all_nodes_status", "nodes": NODES_STATUS}), websocket)
     try:
         while True:
+            # Keep connection alive, or handle client messages if any
             data = await websocket.receive_text()
-            await manager.send_personal_message(f"You wrote: {data}", websocket)
-            await manager.broadcast(f"Client says: {data}")
+            logger.info(f"Received from WebSocket {websocket.client}: {data}")
+            # Example: echo back or process client commands
+            # await manager.send_personal_message(f"Echo: {data}", websocket)
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        CONNECTIONS.remove(websocket)
-        logger.info("Client disconnected")
-
-
-@app.post("/publish")
-async def publish_message(payload: PublishPayload):
-    mqtt.publish(payload.topic, payload.message)
-    RECEIVED.append(
-        {"topic": payload.topic, "payload": payload.message, "source": payload.source, "timestamp": time.time()})
-    notify_clients()
-    return {"status": "published"}
-
-
-# Modificar el endpoint /publish para manejar FormData
-@app.post("/publish/")
-async def publish_message_formdata(
-        metadata: Optional[str] = Form(None),  # JSON string con metadatos
-        file: Optional[UploadFile] = File(None)
-):
-    """
-    Endpoint para publicar un mensaje (texto, audio o imagen).
-    Audio/imagen se envían como 'file'.
-    Texto y otros comandos se envían en 'metadata'.
-    """
-    parsed_metadata: PublishMetadata
-    if metadata:
-        try:
-            parsed_metadata = PublishMetadata(**json.loads(metadata))
-        except json.JSONDecodeError:
-            return {"error": "Invalid metadata JSON"}
-    elif file:  # Si hay archivo pero no metadata, inferir
-        parsed_metadata = PublishMetadata(action="send_lora_file", filename=file.filename,
-                                          original_content_type=file.content_type)
-    else:  # Si no hay ni file ni metadata con mensaje de texto
-        # Permitir enviar mensajes de texto simples sin 'file'
-        # Esto requiere que el cliente envíe metadata con action="send_text" y message=".."
-        # O modificar el PublishPayload original para que sea parte de metadata
-        return {"error": "No file or text message metadata provided"}
-
-    source_id = parsed_metadata.source_id or "web_client"
-    action = parsed_metadata.action
-
-    mqtt_payload_to_bridge = {}
-    # El topic para instruir al nodo puente local del usuario
-    # En una app multiusuario, USER_BRIDGE_ID sería dinámico.
-    bridge_command_topic = f"lora_bridge/{USER_BRIDGE_ID}/command"
-
-    if action in ["send_lora_audio", "send_lora_image", "send_lora_file"] and file:
-        file_content = await file.read()
-        # El backend podría comprimir aquí a ADPCM si es audio WAV/Opus
-        # Por ahora, pasamos el contenido tal cual (o como base64) al puente.
-        # El puente se encargará de la compresión final a ADPCM si es necesario.
-
-        mqtt_payload_to_bridge = {
-            "command": "transmit_lora_data",
-            "from_user": source_id,  # Quién originó esto en la web
-            "content_type": parsed_metadata.original_content_type,  # ej: "audio/webm", "image/png"
-            "filename": parsed_metadata.filename or file.filename,
-            "data_b64": base64.b64encode(file_content).decode('utf-8'),
-            "timestamp": time.time()
-            # Podrías añadir 'target_lora_node_id' aquí si quieres enviar a un nodo específico
-        }
-        logger.info(
-            f"Publishing command to bridge topic {bridge_command_topic} for file {mqtt_payload_to_bridge['filename']}")
-        mqtt.publish(bridge_command_topic, json.dumps(mqtt_payload_to_bridge))
-
-        # No añadir a RECEIVED localmente, ya que esto es una instrucción para el puente.
-        # El mensaje real en el chat aparecerá cuando el puente lo envíe por LoRa y vuelva.
-        # Opcionalmente, podrías añadir un mensaje local "enviando..."
-        return {"status": "instruction_sent_to_bridge", "filename": mqtt_payload_to_bridge['filename']}
-
-    elif action == "send_text":
-        # Asumimos que el mensaje de texto está dentro de parsed_metadata
-        # Necesitaríamos añadir un campo 'message' a PublishMetadata
-        # Por ahora, este flujo de texto se manejaría como antes (publicación a MQTT_TOPIC_DOWN)
-        # o también podría ir por el bridge_command_topic si el texto es para LoRa.
-        # Para simplificar, mantendremos el flujo de texto como estaba (publicar a MQTT_TOPIC_DOWN general).
-        # Esto requeriría que el cliente envíe texto de forma diferente.
-        # Reutilizando el PublishPayload anterior para texto:
-        text_message = getattr(parsed_metadata, 'message', None)  # Suponiendo que 'message' está en metadata
-        if not text_message:
-            return {"error": "No text message in metadata for send_text action"}
-
-        out_payload = {
-            "from": source_id,
-            "message": text_message,
-            "content_type": "text/plain",
-            "timestamp": time.time()
-        }
-        mqtt.publish(MQTT_TOPIC_DOWN, json.dumps(out_payload))
-        RECEIVED.append({
-            "topic": MQTT_TOPIC_DOWN, "payload": text_message, "source": source_id,
-            "content_type": "text/plain", "timestamp": time.time()
-        })
-        notify_clients()
-        return {"published_text": out_payload}
-    else:
-        return {"error": f"Unknown action or missing file: {action}"}
-
-
-@app.get("/nodes")
-async def get_nodes():
-    return NODES
-
-
-def publish_nodes_status():
-    """Publish the status of all known nodes to MQTT."""
-    for node_id, node_data in NODES.items():
-        status_payload = NodeStatus(**node_data).json()
-        mqtt.publish(MQTT_TOPIC_NODES, status_payload)
-        logger.info(f"Published node status: {status_payload}")
-
-
-def notify_clients():
-    """
-    Notifies all connected WebSocket clients about new messages.
-    """
-    for connection in CONNECTIONS:
-        try:
-            message = json.dumps(RECEIVED[-1])  # Send only the latest message
-            mqtt.publish("chat/updates", message)  # Publicar también por MQTT
-            # await connection.send_text(message) # No enviar directamente por WS, sino por MQTT
-        except Exception as e:
-            logger.error(f"Error notifying client: {e}")
-            manager.disconnect(connection)
-
-
-def on_message(client, userdata, msg):
-    """
-    Callback de mensaje MQTT. Se llama cuando se recibe un mensaje en un topic suscrito.
-    """
-    payload_str = msg.payload.decode()
-    try:
-        data = json.loads(payload_str)
-
-        # Extraer campos comunes
-        message_text = data.get("message")
-        sender = data.get("from", "desconocido")  # Puede ser el ID del nodo LoRa o el ID del puente
-        content_type = data.get("content_type", "text/plain")
-        rssi = data.get("rssi")
-        snr = data.get("snr")
-        # ID del nodo LoRa original que envió el mensaje, si es diferente del 'from' (que podría ser el puente)
-        node_id_lora = data.get("node_id_lora", sender)
-        data_b64 = data.get("data_b64")
-        filename = data.get("filename")
-        timestamp = data.get("timestamp", time.time())
-
-        # Actualizar registro de nodos (si es un mensaje de un nodo LoRa o estado del puente)
-        # Usar node_id_lora para la clave si está presente, sino 'sender'
-        node_key_for_status = node_id_lora if node_id_lora and node_id_lora != "desconocido" else sender
-
-        # Solo actualizar si node_key_for_status es un ID de nodo válido (no web_client, etc.)
-        # y no es un mensaje enviado por el propio web_client (evitar bucles de estado)
-        if node_key_for_status not in ["web_client", "sent", "?"]:
-            NODES[node_key_for_status] = {
-                "id": node_key_for_status,
-                "last_seen": timestamp,
-                "rssi": rssi,  # Puede ser None si es estado del puente
-                "snr": snr,  # Puede ser None
-                "status": "online",
-                "is_bridge": data.get("is_bridge", False) or msg.topic.startswith("lora_bridge/")
-                # Marcar como puente si viene de su topic de estado
-            }
-            publish_nodes_status()  # Notificar a los clientes sobre el estado de los nodos
-
-        # Si es un mensaje de tipo "bridge_status" o solo contiene "online" y es texto plano, no lo enviamos al chat.
-        # Estos son para mantener el estado del nodo.
-        if data.get("type") == "bridge_status" or \
-                (content_type == "text/plain" and message_text == "online" and data.get("is_bridge")):
-            logger.info(f"Bridge/Node status update from {sender} (key: {node_key_for_status})")
-            return  # No añadir a RECEIVED ni notificar a clientes de chat
-
-        # Determinar el payload para la UI
-        display_payload = message_text
-        if content_type.startswith("audio/") or content_type.startswith("image/"):
-            display_payload = filename or content_type
-
-        RECEIVED.append({
-            "topic": msg.topic,
-            "payload": display_payload,
-            "source": sender,  # Quién lo envió (puede ser el puente)
-            "node_id_lora": node_id_lora,  # El nodo LoRa original
-            "rssi": rssi,
-            "snr": snr,
-            "content_type": content_type,
-            "data_b64": data_b64,
-            "filename": filename,
-            "timestamp": timestamp
-        })
-        logger.info(f"Received message for chat: {data} from topic: {msg.topic}")
-
-        notify_clients()  # Notificar a todos los clientes WebSocket
-
-    except json.JSONDecodeError:
-        message_text = payload_str
-        sender = "desconocido_raw"
-        content_type = "text/plain"
-        RECEIVED.append({
-            "topic": msg.topic, "payload": message_text, "source": sender,
-            "content_type": content_type, "timestamp": time.time()
-        })
-        logger.info(f"Received raw message for chat: {message_text} from topic: {msg.topic}")
-        notify_clients()
+        logger.info(f"WebSocket {websocket.client} disconnected (expected).")
     except Exception as e:
-        logger.error(f"Error processing message: {e}, payload: {payload_str}")
+        logger.error(f"WebSocket error for {websocket.client}: {e}")
+    finally:
+        manager.disconnect(websocket)
 
-# En mqtt_connect, el puente también debería suscribirse a su topic de comando
-# Esto es conceptual, ya que el backend no sabe los IDs de todos los puentes
-# A menos que los puentes se registren.
-# Por ahora, el backend publica y el puente específico debe estar suscrito.
-# El puente también debe publicar su propio estado (ej. "online", "is_bridge": True)
-# a MQTT_TOPIC_UP para que el backend lo conozca.
+
+@app.post("/publish_text") # For simple text messages from web to general chat
+async def publish_text_message_endpoint(payload: PublishTextPayload):
+    mqtt_payload = {
+        "from": payload.source_id,
+        "message": payload.message,
+        "content_type": "text/plain",
+        "timestamp": time.time()
+    }
+    mqtt_client.publish(MQTT_TOPIC_DOWN, json.dumps(mqtt_payload))
+    # Add to local history for immediate feedback if desired, or wait for MQTT loopback
+    # RECEIVED_MESSAGES.append(mqtt_payload)
+    # await manager.broadcast(json.dumps(mqtt_payload)) # Async consideration
+    return {"status": "text_message_published_to_mqtt_down", "data": mqtt_payload}
+
+@app.post("/command_bridge/") # For sending files/commands to a specific user's bridge
+async def command_bridge_endpoint(
+    metadata_json: str = Form(...), # JSON string for BridgeCommandMetadata
+    file: Optional[UploadFile] = File(None)
+):
+    try:
+        metadata = BridgeCommandMetadata(**json.loads(metadata_json))
+    except json.JSONDecodeError:
+        return {"error": "Invalid metadata JSON"}, 400
+
+    # Determine the target bridge ID. For now, using default.
+    # In a multi-user system, this would be dynamic (e.g., from user session).
+    target_bridge_id = USER_DEFAULT_BRIDGE_ID
+    bridge_command_topic = f"{MQTT_TOPIC_BRIDGE_COMMAND_PREFIX}/{target_bridge_id}/command"
+
+    mqtt_payload_to_bridge = {
+        "command_action": metadata.action, # e.g., "transmit_lora_data"
+        "from_user": metadata.source_id,
+        "original_content_type": metadata.original_content_type,
+        "filename": metadata.filename,
+        "text_message": metadata.text_message, # For text to be sent via LoRa
+        "timestamp": time.time()
+    }
+
+    if file and metadata.action in ["send_lora_audio", "send_lora_image", "send_lora_file"]:
+        file_content = await file.read()
+        mqtt_payload_to_bridge["data_b64"] = base64.b64encode(file_content).decode('utf-8')
+    elif metadata.action == "send_lora_text" and not metadata.text_message:
+         return {"error": "text_message is required for send_lora_text action"}, 400
+    elif not file and metadata.action not in ["send_lora_text"]: # File required for these actions
+        return {"error": f"File is required for action: {metadata.action}"}, 400
+
+
+    logger.info(f"Publishing command to bridge topic {bridge_command_topic} for action {metadata.action}")
+    result = mqtt_client.publish(bridge_command_topic, json.dumps(mqtt_payload_to_bridge), qos=1)
+    if result.rc == paho.MQTT_ERR_SUCCESS:
+        logger.info(f"Successfully published command to {bridge_command_topic}, mid: {result.mid}")
+        return {"status": "instruction_sent_to_bridge", "action": metadata.action, "filename": metadata.filename, "bridge_topic": bridge_command_topic}
+    else:
+        logger.error(f"Failed to publish command to {bridge_command_topic}, rc: {result.rc}")
+        return {"error": "Failed to send instruction to bridge via MQTT"}, 500
+
+
+@app.get("/nodes_status")
+async def get_nodes_status_endpoint():
+    return NODES_STATUS
+
+@app.get("/messages")
+async def get_messages_endpoint(limit: int = 20):
+    return list(RECEIVED_MESSAGES)[-limit:]
+
+
+# Optional: A periodic task to publish all node statuses if needed,
+# or to clean up old nodes.
+# async def periodic_node_status_publisher():
+#     while True:
+#         await asyncio.sleep(60) # Every 60 seconds
+#         logger.info("Broadcasting all node statuses...")
+#         for node_id, node_data in list(NODES_STATUS.items()):
+#             # Check if node is stale
+#             if time.time() - node_data.get("last_seen", 0) > 300: # 5 minutes
+#                 node_data["status"] = "offline"
+#             # mqtt_client.publish(MQTT_TOPIC_NODES_STATUS, json.dumps(node_data), qos=1)
+#         await manager.broadcast(json.dumps({"type": "all_nodes_status", "nodes": NODES_STATUS}))
+
+# @app.on_event("startup")
+# async def startup_event():
+#    asyncio.create_task(periodic_node_status_publisher())
