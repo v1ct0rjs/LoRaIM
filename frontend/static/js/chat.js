@@ -7,7 +7,7 @@ const WEBSOCKET_TIMEOUT = 3000 // tiempo antes de considerar la conexión como f
 
 /* ---------- DOM ---------- */
 const msgsEl = document.getElementById("msgs")
-const badgeEl = document.getElementById("unread")
+const badgeEl = document.getElementById("unreadBadge") // Corrected ID
 const formEl = document.getElementById("sendForm")
 const inputEl = document.getElementById("msgInput")
 const headerEl = document.querySelector(".chat-header")
@@ -23,7 +23,7 @@ headerEl.appendChild(headerActions)
 const settingsButton = document.createElement("button")
 settingsButton.className = "settings-button"
 settingsButton.innerHTML =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>'
+  '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>'
 settingsButton.title = "Configuración"
 headerActions.appendChild(settingsButton)
 
@@ -180,6 +180,14 @@ recordAudioBtn.addEventListener("click", async () => {
     recordAudioBtn.disabled = false
   } else {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert(
+          "La API MediaDevices no está disponible en este navegador o contexto (¿HTTPS?). No se puede grabar audio.",
+        )
+        recordAudioBtn.disabled = false // Re-enable button
+        recordAudioBtn.innerHTML = "🎤"
+        return
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" }) // Intentar con opus para mejor compresión si el navegador lo soporta
       audioChunks = []
@@ -214,8 +222,9 @@ recordAudioBtn.addEventListener("click", async () => {
 
         try {
           // Mostrar mensaje de "Enviando audio..." en la UI localmente
+          const metadataFilename = metadata.filename // Use the filename from the metadata object
           addBubble({
-            payload: `Enviando audio: ${filename}...`,
+            payload: `Enviando audio: ${metadataFilename}...`,
             source: LOCAL_SOURCE,
             time: new Date().toLocaleTimeString().slice(0, 5),
             content_type: "system_message", // Un tipo especial para mensajes del sistema
@@ -287,6 +296,7 @@ uploadImageBtn.addEventListener("change", async (event) => {
     formData.append("file", file, file.name)
 
     try {
+      // This is already correct, file.name is the right one here.
       addBubble({
         payload: `Enviando imagen: ${file.name}...`,
         source: LOCAL_SOURCE,
@@ -476,71 +486,114 @@ function scheduleReconnect() {
 function handleWebSocketMessage(e) {
   try {
     const data = JSON.parse(e.data)
+    console.log("WebSocket received:", data) // Log all incoming messages for debugging
 
-    if (data.type === "nodes_update" && data.nodes) {
-      data.nodes.forEach((node) => {
-        updateNodeStatus(node.id, {
-          rssi: node.rssi,
-          snr: node.snr,
-          lastSeen: node.last_seen * 1000,
-          status: node.status,
-          source: node.id,
-          isBridge: node.is_bridge === true,
+    // Handle node status updates separately
+    if (data.type === "nodes_update" || data.type === "all_nodes_status") {
+      if (data.nodes && Array.isArray(data.nodes)) {
+        // Ensure nodes is an array
+        data.nodes.forEach((node) => {
+          updateNodeStatus(node.id, {
+            rssi: node.rssi,
+            snr: node.snr,
+            lastSeen: node.last_seen ? node.last_seen * 1000 : Date.now(),
+            status: node.status,
+            source: node.id, // Ensure source is set for updateNodeStatus
+            isBridge: node.is_bridge === true,
+          })
         })
-      })
-      return
+      } else if (
+        data.nodes &&
+        typeof data.nodes === "object" &&
+        Object.keys(data.nodes).length === 0 &&
+        data.type === "all_nodes_status"
+      ) {
+        // Handles the case: {"type": "all_nodes_status", "nodes": {}} - no nodes to update
+        console.log("Received all_nodes_status with empty nodes object.")
+      } else if (data.type === "all_nodes_status" && !data.nodes) {
+        console.log("Received all_nodes_status without a nodes field or empty nodes.")
+      } else {
+        console.warn("Received nodes_update/all_nodes_status with unexpected nodes structure:", data.nodes)
+      }
+      return // Do not proceed to addBubble for node updates
     }
 
-    const { payload, source = "?", rssi, snr, timestamp, type, content_type, data_b64, node_id_lora, filename } = data
+    // Destructure properties for chat messages, providing defaults
+    const {
+      payload, // This will be the main text or filename for display
+      source = "?",
+      rssi,
+      snr,
+      timestamp,
+      type, // General message type from backend if any
+      content_type = "text/plain", // Default to text if not specified
+      data_b64, // For binary data of audio/image
+      node_id_lora, // Actual LoRa node ID that sent the message
+      filename, // Filename for audio/image
+    } = data
 
     const effectiveSource = node_id_lora || source
 
-    if (effectiveSource && effectiveSource !== "sent" && effectiveSource !== "?" && type !== "bridge") {
-      updateNodeStatus(effectiveSource, {
+    // Update LoRa node status if it's a message from a LoRa node
+    if (node_id_lora && node_id_lora !== "sent" && node_id_lora !== "?") {
+      updateNodeStatus(node_id_lora, {
+        // Use node_id_lora here
         rssi,
         snr,
         lastSeen: timestamp ? timestamp * 1000 : Date.now(),
         status: "online",
-        source: effectiveSource,
-        isBridge: data.is_bridge === true,
+        source: node_id_lora, // Pass node_id_lora as source for consistency
+        isBridge: data.is_bridge === true, // Check if this info is available/relevant here
       })
     }
 
+    // Ignore specific non-chat message types if they weren't caught earlier
     if (type === "bridge" || (content_type === "text/plain" && payload === "online")) {
+      console.log("Ignoring bridge status or 'online' ping message for chat display.")
       return
     }
 
-    const messageMatchesSearch =
-      !searchQuery ||
-      (payload && typeof payload === "string" && payload.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (filename && filename.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (effectiveSource && effectiveSource.toLowerCase().includes(searchQuery.toLowerCase()))
-
-    // Para audio/imagen, el 'payload' principal para addBubble será el nombre del archivo
-    // o una descripción, mientras que data_b64 contendrá los datos reales.
-    let displayPayload = payload
-    if ((content_type && content_type.startsWith("audio/")) || (content_type && content_type.startsWith("image/"))) {
-      displayPayload = filename || (content_type.startsWith("audio/") ? "Mensaje de voz" : "Imagen")
+    // Determine display payload for addBubble
+    let displayPayloadForBubble = payload
+    if (filename && (content_type.startsWith("audio/") || content_type.startsWith("image/"))) {
+      displayPayloadForBubble = filename // Use filename for display if it's media
+    } else if (!payload && filename) {
+      // Fallback if payload is missing but filename exists for media
+      displayPayloadForBubble = filename
+    } else if (!payload && !filename && content_type.startsWith("audio/")) {
+      displayPayloadForBubble = "Mensaje de voz"
+    } else if (!payload && !filename && content_type.startsWith("image/")) {
+      displayPayloadForBubble = "Imagen"
     }
 
+    // Check if the message matches the current search query
+    const messageMatchesSearch =
+      !searchQuery ||
+      (displayPayloadForBubble &&
+        typeof displayPayloadForBubble === "string" &&
+        displayPayloadForBubble.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (effectiveSource && effectiveSource.toLowerCase().includes(searchQuery.toLowerCase()))
+
     addBubble({
-      payload: displayPayload,
+      payload: displayPayloadForBubble,
       source: effectiveSource,
       time: new Date(timestamp ? timestamp * 1000 : Date.now()).toLocaleTimeString().slice(0, 5),
       metrics: { rssi, snr },
       hidden: searchQuery && !messageMatchesSearch,
-      content_type: content_type || "text/plain",
+      content_type: content_type,
       data_b64: data_b64,
+      filename: filename, // Pass filename to addBubble
     })
 
-    lastMessage = { source: effectiveSource, payload: displayPayload }
+    lastMessage = { source: effectiveSource, payload: displayPayloadForBubble }
 
+    // Notifications and sounds for messages not from local user
     if (effectiveSource !== LOCAL_SOURCE) {
       if (soundsEnabled) {
         notificationSound.play().catch((e) => console.error("Error reproduciendo sonido:", e))
       }
       if (notificationsEnabled && notificationPermission === "granted" && !document.hasFocus()) {
-        showNotification(effectiveSource, displayPayload)
+        showNotification(effectiveSource, displayPayloadForBubble)
       }
       if (!isNearBottom) {
         unread++
@@ -548,7 +601,7 @@ function handleWebSocketMessage(e) {
       }
     }
   } catch (error) {
-    console.error("Error procesando mensaje WebSocket:", error, "Data:", e.data)
+    console.error("Error procesando mensaje WebSocket:", error, "Raw Data:", e.data)
   }
 }
 
@@ -739,46 +792,68 @@ function addBubble({
   hidden = false,
   content_type = "text/plain",
   data_b64 = null,
+  filename = null, // Add filename here
 }) {
+  let displayablePayload = payload // This is what's shown as text or alt text
+  let dataContent = payload // For dataset.content
+
+  if (filename && (content_type.startsWith("audio/") || content_type.startsWith("image/"))) {
+    displayablePayload = filename
+    dataContent = filename
+  } else if (typeof payload !== "string" && !filename) {
+    // Fallback if payload is not a string and no filename (e.g. for old messages)
+    if (content_type.startsWith("audio/")) displayablePayload = "Mensaje de voz"
+    else if (content_type.startsWith("image/")) displayablePayload = "Imagen"
+    else displayablePayload = "Mensaje" // Generic
+    dataContent = displayablePayload
+  }
+
   const wrap = document.createElement("div")
-  wrap.className = "message " + (source === LOCAL_SOURCE ? "sent" : "received")
-  if (hidden) wrap.classList.add("hidden")
+  wrap.className = "message"
 
   wrap.dataset.source = source
-  // Para mensajes del sistema o errores, payload es el mensaje.
-  // Para audio/imagen real, payload podría ser el nombre del archivo.
-  wrap.dataset.content =
-    typeof payload === "string" || payload instanceof String ? payload : payload.filename || "archivo multimedia"
+  wrap.dataset.content = typeof dataContent === "string" ? dataContent : JSON.stringify(dataContent)
 
-  const senderPrefix = (source === LOCAL_SOURCE ? "Yo" : source) + ": "
+  const senderPrefixText = (source === LOCAL_SOURCE ? "Yo" : source) + ": "
 
   if (content_type.startsWith("audio/") && data_b64) {
     const audioPlayer = document.createElement("audio")
     audioPlayer.controls = true
-    // Navegadores modernos pueden manejar opus en base64
     audioPlayer.src = `data:${content_type};base64,${data_b64}`
 
     const senderSpan = document.createElement("span")
-    senderSpan.textContent = senderPrefix
+    senderSpan.textContent = senderPrefixText // Use the text prefix
     wrap.appendChild(senderSpan)
+
+    const fileNameSpan = document.createElement("span")
+    fileNameSpan.textContent = displayablePayload // Show filename or "Mensaje de voz"
+    fileNameSpan.style.marginRight = "5px"
+    wrap.appendChild(fileNameSpan)
+
     wrap.appendChild(audioPlayer)
   } else if (content_type.startsWith("image/") && data_b64) {
     const imgEl = document.createElement("img")
     imgEl.src = `data:${content_type};base64,${data_b64}`
     imgEl.style.maxWidth = "200px"
     imgEl.style.maxHeight = "200px"
-    imgEl.alt = payload.filename || "imagen recibida"
+    imgEl.alt = displayablePayload // Use filename or "Imagen" as alt
 
     const senderSpan = document.createElement("span")
-    senderSpan.textContent = senderPrefix
+    senderSpan.textContent = senderPrefixText
     wrap.appendChild(senderSpan)
     wrap.appendChild(imgEl)
+
+    // Optionally display filename below image
+    const fileNameDiv = document.createElement("div")
+    fileNameDiv.textContent = displayablePayload
+    fileNameDiv.style.fontSize = "0.8em"
+    fileNameDiv.style.color = "grey"
+    wrap.appendChild(fileNameDiv)
   } else if (content_type === "system_message" || content_type === "error_message") {
-    wrap.textContent = payload // Mensaje directo, sin prefijo de remitente
+    wrap.textContent = displayablePayload
     if (content_type === "error_message") wrap.classList.add("error")
   } else {
-    // Mensaje de texto normal
-    wrap.textContent = senderPrefix + payload
+    wrap.textContent = senderPrefixText + displayablePayload
   }
 
   const ts = document.createElement("span")
@@ -1057,6 +1132,7 @@ function filterMessages(query) {
       metrics: m.rssi !== undefined || m.snr !== undefined ? { rssi: m.rssi, snr: m.snr } : {},
       content_type: m.content_type || "text/plain",
       data_b64: m.data_b64,
+      filename: m.filename, // Pass filename from stored message
     })
     // prevMsg = { source: m.source, payload: displayPayload, timestamp: m.timestamp }; // Actualizar prevMsg
 
