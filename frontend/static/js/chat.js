@@ -142,6 +142,193 @@ charCountEl.className = "char-count"
 charCountEl.textContent = `0/${MAX_CHARS}`
 formEl.insertBefore(charCountEl, formEl.querySelector("button"))
 
+const recordAudioBtn = document.createElement("button")
+recordAudioBtn.innerHTML = "🎤" // Icono de micrófono
+recordAudioBtn.title = "Grabar audio (max 10s)"
+recordAudioBtn.type = "button" // Para no enviar el formulario
+recordAudioBtn.classList.add("action-btn") // Añadir una clase para estilizar
+
+const uploadImageBtn = document.createElement("input")
+uploadImageBtn.type = "file"
+uploadImageBtn.accept = "image/*"
+uploadImageBtn.style.display = "none" // Oculto, se activa con un botón
+const uploadImageLabel = document.createElement("label")
+uploadImageLabel.innerHTML = "🖼️" // Icono de imagen
+uploadImageLabel.title = "Enviar imagen"
+uploadImageLabel.classList.add("action-btn")
+uploadImageLabel.htmlFor = "imageUploadInput" // Asociar con el input
+uploadImageBtn.id = "imageUploadInput"
+
+// Añadir botones al formulario
+// Insertar antes del input de texto
+const sendButton = formEl.querySelector("button[type='submit']")
+formEl.insertBefore(recordAudioBtn, inputEl)
+formEl.insertBefore(uploadImageLabel, inputEl)
+formEl.appendChild(uploadImageBtn) // El input oculto
+
+let mediaRecorder
+let audioChunks = []
+let audioRecordingTimeout
+const MAX_AUDIO_DURATION_MS = 10000 // 10 segundos
+
+recordAudioBtn.addEventListener("click", async () => {
+  if (mediaRecorder && mediaRecorder.state === "recording") {
+    mediaRecorder.stop()
+    if (audioRecordingTimeout) clearTimeout(audioRecordingTimeout)
+    recordAudioBtn.innerHTML = "🎤"
+    recordAudioBtn.title = "Grabar audio (max 10s)"
+    recordAudioBtn.disabled = false
+  } else {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" }) // Intentar con opus para mejor compresión si el navegador lo soporta
+      audioChunks = []
+
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data)
+      }
+
+      mediaRecorder.onstop = async () => {
+        recordAudioBtn.disabled = false
+        recordAudioBtn.innerHTML = "🎤"
+        if (audioChunks.length === 0) {
+          console.log("No audio data recorded.")
+          stream.getTracks().forEach((track) => track.stop())
+          return
+        }
+
+        const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType })
+
+        // Crear un nombre de archivo único
+        const filename = `voice_msg_${Date.now()}.${mediaRecorder.mimeType.split("/")[1].split(";")[0]}`
+
+        const formData = new FormData()
+        formData.append("file", audioBlob, filename)
+        // Añadir un campo para indicar que es para transmisión LoRa directa
+        // y el tipo de contenido original. El backend decidirá el formato final para LoRa.
+        formData.append(
+          "metadata",
+          JSON.stringify({
+            action: "send_lora_audio", // Instrucción para el backend/puente
+            original_content_type: mediaRecorder.mimeType,
+            filename: filename,
+            source_id: "web_frontend_user", // O un ID de usuario real
+          }),
+        )
+
+        try {
+          // Mostrar mensaje de "Enviando audio..." en la UI localmente
+          addBubble({
+            payload: `Enviando audio: ${filename}...`,
+            source: LOCAL_SOURCE,
+            time: new Date().toLocaleTimeString().slice(0, 5),
+            content_type: "system_message", // Un tipo especial para mensajes del sistema
+          })
+
+          const response = await fetch("/publish", {
+            method: "POST",
+            body: formData,
+          })
+          const result = await response.json()
+          if (response.ok) {
+            console.log("Audio instruction sent to backend:", result)
+            // No añadir burbuja aquí, el mensaje de "Enviando..." ya está.
+            // La confirmación real vendría si el puente LoRa ACKs o algo similar (más complejo)
+          } else {
+            console.error("Error sending audio instruction:", result)
+            addBubble({
+              payload: `Error enviando audio: ${result.error || "Error desconocido"}`,
+              source: LOCAL_SOURCE,
+              time: new Date().toLocaleTimeString().slice(0, 5),
+              content_type: "error_message",
+            })
+          }
+        } catch (error) {
+          console.error("Error enviando audio al backend:", error)
+          addBubble({
+            payload: `Error de red al enviar audio.`,
+            source: LOCAL_SOURCE,
+            time: new Date().toLocaleTimeString().slice(0, 5),
+            content_type: "error_message",
+          })
+        }
+        stream.getTracks().forEach((track) => track.stop())
+      }
+
+      mediaRecorder.start()
+      recordAudioBtn.innerHTML = "🛑"
+      recordAudioBtn.title = "Detener grabación"
+      recordAudioBtn.disabled = true // Deshabilitar mientras se procesa el stop
+
+      // Iniciar temporizador para detener automáticamente
+      audioRecordingTimeout = setTimeout(() => {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+          mediaRecorder.stop()
+          recordAudioBtn.innerHTML = "🎤" // Reset icon
+          recordAudioBtn.title = "Grabar audio (max 10s)"
+          console.log("Grabación detenida por límite de tiempo.")
+        }
+      }, MAX_AUDIO_DURATION_MS)
+    } catch (err) {
+      console.error("Error al acceder al micrófono:", err)
+      alert("No se pudo acceder al micrófono. Asegúrate de dar permisos.")
+      recordAudioBtn.disabled = false
+    }
+  }
+})
+
+uploadImageBtn.addEventListener("change", async (event) => {
+  const file = event.target.files[0]
+  if (file) {
+    const formData = new FormData()
+    formData.append("file", file, file.name)
+    formData.append(
+      "metadata",
+      JSON.stringify({
+        action: "send_lora_image", // Similar para imágenes
+        original_content_type: file.type,
+        filename: file.name,
+        source_id: "web_frontend_user",
+      }),
+    )
+
+    try {
+      addBubble({
+        payload: `Enviando imagen: ${file.name}...`,
+        source: LOCAL_SOURCE,
+        time: new Date().toLocaleTimeString().slice(0, 5),
+        content_type: "system_message",
+      })
+
+      const response = await fetch("/publish", {
+        method: "POST",
+        body: formData,
+      })
+      const result = await response.json()
+      if (response.ok) {
+        console.log("Image instruction sent to backend:", result)
+      } else {
+        console.error("Error sending image instruction:", result)
+        addBubble({
+          payload: `Error enviando imagen: ${result.error || "Error desconocido"}`,
+          source: LOCAL_SOURCE,
+          time: new Date().toLocaleTimeString().slice(0, 5),
+          content_type: "error_message",
+        })
+      }
+    } catch (error) {
+      console.error("Error enviando imagen al backend:", error)
+      addBubble({
+        payload: `Error de red al enviar imagen.`,
+        source: LOCAL_SOURCE,
+        time: new Date().toLocaleTimeString().slice(0, 5),
+        content_type: "error_message",
+      })
+    }
+    uploadImageBtn.value = ""
+  }
+})
+
 /* ---------- Configuración del botón de scroll ---------- */
 scrollDownBtn.className = "scroll-down-btn hidden"
 scrollDownBtn.innerHTML = "↓"
@@ -296,81 +483,78 @@ function handleWebSocketMessage(e) {
   try {
     const data = JSON.parse(e.data)
 
-    // Comprobar si es una actualización de nodos
     if (data.type === "nodes_update" && data.nodes) {
-      // Actualizar la lista de nodos
       data.nodes.forEach((node) => {
         updateNodeStatus(node.id, {
           rssi: node.rssi,
           snr: node.snr,
-          lastSeen: node.last_seen * 1000, // Convertir a milisegundos
+          lastSeen: node.last_seen * 1000,
           status: node.status,
           source: node.id,
-          isBridge: node.is_bridge === true, // Usar la propiedad explícita is_bridge
+          isBridge: node.is_bridge === true,
         })
       })
       return
     }
 
-    const { payload, source = "?", rssi, snr, nodeId, timestamp, type } = data
+    const { payload, source = "?", rssi, snr, timestamp, type, content_type, data_b64, node_id_lora, filename } = data
 
-    // Actualizar estado del nodo si se proporciona un ID de nodo
-    if (source && source !== "sent" && source !== "?") {
-      updateNodeStatus(source, {
+    const effectiveSource = node_id_lora || source
+
+    if (effectiveSource && effectiveSource !== "sent" && effectiveSource !== "?" && type !== "bridge") {
+      updateNodeStatus(effectiveSource, {
         rssi,
         snr,
         lastSeen: timestamp ? timestamp * 1000 : Date.now(),
         status: "online",
-        source,
-        isBridge: type === "bridge", // Marcar como puente si el tipo es "bridge"
+        source: effectiveSource,
+        isBridge: data.is_bridge === true,
       })
     }
 
-    // Ignorar mensajes de tipo "bridge" o mensajes que solo contienen "online"
-    if (type === "bridge" || payload === "online") {
+    if (type === "bridge" || (content_type === "text/plain" && payload === "online")) {
       return
     }
 
-    // Solo añadir burbuja si el mensaje es diferente al último
-    if (source !== lastMessage.source || payload !== lastMessage.payload) {
-      // Comprobar si el mensaje coincide con la búsqueda actual
-      const messageMatchesSearch =
-        !searchQuery ||
-        payload.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        source.toLowerCase().includes(searchQuery.toLowerCase())
+    const messageMatchesSearch =
+      !searchQuery ||
+      (payload && typeof payload === "string" && payload.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (filename && filename.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (effectiveSource && effectiveSource.toLowerCase().includes(searchQuery.toLowerCase()))
 
-      addBubble({
-        payload,
-        source,
-        time: new Date().toLocaleTimeString().slice(0, 5),
-        metrics: { rssi, snr },
-        hidden: searchQuery && !messageMatchesSearch,
-      })
+    // Para audio/imagen, el 'payload' principal para addBubble será el nombre del archivo
+    // o una descripción, mientras que data_b64 contendrá los datos reales.
+    let displayPayload = payload
+    if ((content_type && content_type.startsWith("audio/")) || (content_type && content_type.startsWith("image/"))) {
+      displayPayload = filename || (content_type.startsWith("audio/") ? "Mensaje de voz" : "Imagen")
+    }
 
-      // Actualizar el último mensaje
-      lastMessage = { source, payload }
+    addBubble({
+      payload: displayPayload,
+      source: effectiveSource,
+      time: new Date(timestamp ? timestamp * 1000 : Date.now()).toLocaleTimeString().slice(0, 5),
+      metrics: { rssi, snr },
+      hidden: searchQuery && !messageMatchesSearch,
+      content_type: content_type || "text/plain",
+      data_b64: data_b64,
+    })
 
-      // Notificaciones y sonidos solo si no es un mensaje enviado por nosotros
-      if (source !== LOCAL_SOURCE) {
-        // Reproducir sonido de notificación si está habilitado
-        if (soundsEnabled) {
-          notificationSound.play().catch((e) => console.error("Error reproduciendo sonido:", e))
-        }
+    lastMessage = { source: effectiveSource, payload: displayPayload }
 
-        // Enviar notificación del navegador si está habilitado y la ventana no está enfocada
-        if (notificationsEnabled && notificationPermission === "granted" && !document.hasFocus()) {
-          showNotification(source, payload)
-        }
-
-        // Si no estamos cerca del final, incrementar contador de no leídos
-        if (!isNearBottom) {
-          unread++
-          updateUnreadBadge()
-        }
+    if (effectiveSource !== LOCAL_SOURCE) {
+      if (soundsEnabled) {
+        notificationSound.play().catch((e) => console.error("Error reproduciendo sonido:", e))
+      }
+      if (notificationsEnabled && notificationPermission === "granted" && !document.hasFocus()) {
+        showNotification(effectiveSource, displayPayload)
+      }
+      if (!isNearBottom) {
+        unread++
+        updateUnreadBadge()
       }
     }
   } catch (error) {
-    console.error("Error procesando mensaje WebSocket:", error)
+    console.error("Error procesando mensaje WebSocket:", error, "Data:", e.data)
   }
 }
 
@@ -553,182 +737,155 @@ function requestNotificationPermission() {
 }
 
 /* ---------- util ---------- */
-function addBubble({ payload, source, time, metrics = {}, hidden = false }) {
+function addBubble({
+  payload,
+  source,
+  time,
+  metrics = {},
+  hidden = false,
+  content_type = "text/plain",
+  data_b64 = null,
+}) {
   const wrap = document.createElement("div")
   wrap.className = "message " + (source === LOCAL_SOURCE ? "sent" : "received")
   if (hidden) wrap.classList.add("hidden")
 
   wrap.dataset.source = source
-  wrap.dataset.content = payload
+  // Para mensajes del sistema o errores, payload es el mensaje.
+  // Para audio/imagen real, payload podría ser el nombre del archivo.
+  wrap.dataset.content =
+    typeof payload === "string" || payload instanceof String ? payload : payload.filename || "archivo multimedia"
 
-  wrap.textContent = (source === LOCAL_SOURCE ? "Yo" : source) + ": " + payload
+  const senderPrefix = (source === LOCAL_SOURCE ? "Yo" : source) + ": "
+
+  if (content_type.startsWith("audio/") && data_b64) {
+    const audioPlayer = document.createElement("audio")
+    audioPlayer.controls = true
+    // Navegadores modernos pueden manejar opus en base64
+    audioPlayer.src = `data:${content_type};base64,${data_b64}`
+
+    const senderSpan = document.createElement("span")
+    senderSpan.textContent = senderPrefix
+    wrap.appendChild(senderSpan)
+    wrap.appendChild(audioPlayer)
+  } else if (content_type.startsWith("image/") && data_b64) {
+    const imgEl = document.createElement("img")
+    imgEl.src = `data:${content_type};base64,${data_b64}`
+    imgEl.style.maxWidth = "200px"
+    imgEl.style.maxHeight = "200px"
+    imgEl.alt = payload.filename || "imagen recibida"
+
+    const senderSpan = document.createElement("span")
+    senderSpan.textContent = senderPrefix
+    wrap.appendChild(senderSpan)
+    wrap.appendChild(imgEl)
+  } else if (content_type === "system_message" || content_type === "error_message") {
+    wrap.textContent = payload // Mensaje directo, sin prefijo de remitente
+    if (content_type === "error_message") wrap.classList.add("error")
+  } else {
+    // Mensaje de texto normal
+    wrap.textContent = senderPrefix + payload
+  }
 
   const ts = document.createElement("span")
   ts.className = "time"
   ts.textContent = time
   wrap.appendChild(ts)
 
-  // Añadir métricas LoRa si están habilitadas y disponibles
-  if (loraMetricsEnabled && (metrics.rssi !== undefined || metrics.snr !== undefined)) {
+  if (
+    loraMetricsEnabled &&
+    (metrics.rssi !== undefined || metrics.snr !== undefined) &&
+    !content_type.startsWith("system") &&
+    !content_type.startsWith("error")
+  ) {
     const metricsEl = document.createElement("div")
     metricsEl.className = "metrics"
 
-    if (metrics.rssi !== undefined) {
+    if (metrics.rssi !== undefined && metrics.rssi !== null) {
       const rssiEl = document.createElement("span")
       rssiEl.className = "rssi"
       rssiEl.textContent = `RSSI: ${metrics.rssi} dBm`
       metricsEl.appendChild(rssiEl)
     }
 
-    if (metrics.snr !== undefined) {
+    if (metrics.snr !== undefined && metrics.snr !== null) {
       const snrEl = document.createElement("span")
       snrEl.className = "snr"
       snrEl.textContent = `SNR: ${metrics.snr} dB`
       metricsEl.appendChild(snrEl)
     }
-
-    wrap.appendChild(metricsEl)
+    if (metricsEl.hasChildNodes()) {
+      wrap.appendChild(metricsEl)
+    }
   }
 
   msgsEl.appendChild(wrap)
 
-  // Hacer scroll solo si estamos cerca del final
   if (isNearBottom) {
     scrollToBottom()
   } else {
-    // Mostrar botón de scroll y actualizar contador
     scrollDownBtn.classList.remove("hidden")
   }
 }
 
-// Función para hacer scroll al último mensaje
-function scrollToBottom() {
-  msgsEl.scrollTop = msgsEl.scrollHeight
-  scrollDownBtn.classList.add("hidden")
-  unread = 0
-  unreadBadge.textContent = "0"
-  unreadBadge.classList.add("hidden")
-  isNearBottom = true
-}
+// En handleWebSocketMessage:
 
-// Función para verificar si estamos cerca del final
-function checkIfNearBottom() {
-  isNearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < SCROLL_THRESHOLD
-  if (isNearBottom) {
-    scrollDownBtn.classList.add("hidden")
-    unread = 0
-    unreadBadge.textContent = "0"
-    unreadBadge.classList.add("hidden")
-  } else {
-    scrollDownBtn.classList.remove("hidden")
-  }
-}
-
-// Función para actualizar el contador de mensajes no leídos
-function updateUnreadBadge() {
-  if (unread > 0) {
-    unreadBadge.textContent = unread.toString()
-    unreadBadge.classList.remove("hidden")
-    scrollDownBtn.setAttribute("data-count", unread.toString())
-  } else {
-    unreadBadge.classList.add("hidden")
-    scrollDownBtn.removeAttribute("data-count")
-  }
-}
-
-// Función para filtrar mensajes
-function filterMessages(query) {
-  const messages = msgsEl.querySelectorAll(".message")
-
-  if (!query) {
-    // Mostrar todos los mensajes si no hay consulta
-    messages.forEach((msg) => msg.classList.remove("hidden"))
-    return
-  }
-
-  query = query.toLowerCase()
-
-  // Filtrar mensajes que coincidan con la consulta
-  messages.forEach((msg) => {
-    const source = msg.dataset.source || ""
-    const content = msg.dataset.content || ""
-
-    if (source.toLowerCase().includes(query) || content.toLowerCase().includes(query)) {
-      msg.classList.remove("hidden")
-    } else {
-      msg.classList.add("hidden")
-    }
-  })
-}
-/* ---------- carga inicial (últimos PAGE) ---------- */
-// Modificar la función de carga inicial para cargar también los nodos
-;(async () => {
-  // Cargar mensajes
-  const res = await fetch(`/messages?limit=${PAGE}`)
-  const { messages } = await res.json()
-
-  // Para la carga inicial, filtramos mensajes duplicados consecutivos
-  let prevMsg = { source: "", payload: "" }
-
-  messages.forEach((m) => {
-    // Solo añadir si es diferente al mensaje anterior
-    if (m.source !== prevMsg.source || m.payload !== prevMsg.payload) {
-      addBubble({
-        payload: m.payload,
-        source: m.source,
-        time: new Date().toLocaleTimeString().slice(0, 5),
-        metrics: m.rssi !== undefined || m.snr !== undefined ? { rssi: m.rssi, snr: m.snr } : {},
-      })
-
-      // Actualizar el mensaje anterior
-      prevMsg = { source: m.source, payload: m.payload }
-
-      // Actualizar el estado del nodo si hay un ID de nodo
-      if (m.source && m.source !== "sent" && m.source !== "?") {
-        updateNodeStatus(m.source, {
-          rssi: m.rssi,
-          snr: m.snr,
-          lastSeen: m.timestamp ? m.timestamp * 1000 : Date.now(),
-          status: "online",
-          source: m.source,
-        })
-      }
-    }
-  })
-
-  // Cargar nodos
+// En la carga inicial de mensajes:
+// ;(async () => {
+const storedMessages = localStorage.getItem("chatMessages")
+let messages = []
+if (storedMessages) {
   try {
-    const nodesRes = await fetch("/nodes")
-    const { nodes } = await nodesRes.json()
-
-    if (nodes && nodes.length > 0) {
-      nodes.forEach((node) => {
-        updateNodeStatus(node.id, {
-          rssi: node.rssi,
-          snr: node.snr,
-          lastSeen: node.last_seen * 1000, // Convertir a milisegundos
-          status: node.status,
-          source: node.id,
-          isBridge: node.is_bridge === true, // Usar la propiedad explícita is_bridge
-        })
-      })
-    }
+    messages = JSON.parse(storedMessages)
   } catch (error) {
-    console.error("Error cargando nodos:", error)
+    console.error("Error parsing stored messages:", error)
+    localStorage.removeItem("chatMessages") // Limpiar si hay error
+  }
+}
+
+// Invertir el orden de los mensajes para mostrar los más recientes primero
+messages.reverse()
+
+// Limpiar el contenedor de mensajes antes de agregar los mensajes cargados
+msgsEl.innerHTML = ""
+
+// Variables para evitar duplicados visuales
+// let prevMsg = { source: null, payload: null, timestamp: null };
+
+messages.forEach((m) => {
+  // Evitar duplicados visuales estrictos (podría ser necesario ajustar esta lógica)
+  // if (m.source !== prevMsg.source || m.payload !== prevMsg.payload || m.timestamp !== prevMsg.timestamp) {
+  let displayPayload = m.payload
+  if (
+    (m.content_type && m.content_type.startsWith("audio/")) ||
+    (m.content_type && m.content_type.startsWith("image/"))
+  ) {
+    displayPayload = m.filename || (m.content_type.startsWith("audio/") ? "Mensaje de voz" : "Imagen")
   }
 
-  // Guardar el último mensaje para comparar con nuevos WebSocket
-  if (messages.length > 0) {
-    const lastMsg = messages[messages.length - 1]
-    lastMessage = { source: lastMsg.source, payload: lastMsg.payload }
+  addBubble({
+    payload: displayPayload,
+    source: m.source,
+    time: new Date(m.timestamp ? m.timestamp * 1000 : Date.now()).toLocaleTimeString().slice(0, 5),
+    metrics: m.rssi !== undefined || m.snr !== undefined ? { rssi: m.rssi, snr: m.snr } : {},
+    content_type: m.content_type || "text/plain",
+    data_b64: m.data_b64,
+  })
+  // prevMsg = { source: m.source, payload: displayPayload, timestamp: m.timestamp }; // Actualizar prevMsg
+
+  if (m.source && m.source !== "sent" && m.source !== "?") {
+    updateNodeStatus(m.source, {
+      rssi: m.rssi,
+      snr: m.snr,
+      lastSeen: m.timestamp ? m.timestamp * 1000 : Date.now(),
+      status: "online",
+      source: m.source,
+      isBridge: m.is_bridge === true,
+    })
   }
-
-  scrollToBottom() // Asegurar scroll al fondo
-  inputEl.focus()
-
-  // Iniciar conexión WebSocket
-  connectWebSocket()
-})()
+  // }
+})
+// ... })();
 
 /* ---------- enviar ---------- */
 formEl.addEventListener("submit", async (e) => {
@@ -883,3 +1040,97 @@ setInterval(renderNodesList, 60000)
 
 // Actualizar estado del nodo puente cada 5 segundos
 setInterval(updateBridgeNodeStatus, 5000)
+
+function updateUnreadBadge() {
+  badgeEl.textContent = unread.toString()
+  badgeEl.classList.toggle("hidden", unread === 0)
+}
+
+function scrollToBottom() {
+  msgsEl.scrollTop = msgsEl.scrollHeight
+  scrollDownBtn.classList.add("hidden")
+  isNearBottom = true
+  unread = 0
+  updateUnreadBadge()
+}
+
+function checkIfNearBottom() {
+  isNearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < SCROLL_THRESHOLD
+  if (isNearBottom) {
+    scrollDownBtn.classList.add("hidden")
+    unread = 0
+    updateUnreadBadge()
+  } else {
+    scrollDownBtn.classList.remove("hidden")
+  }
+}
+
+function filterMessages(query) {
+  const messages = document.querySelectorAll(".message")
+  messages.forEach((message) => {
+    const content = message.dataset.content.toLowerCase()
+    if (content.includes(query.toLowerCase())) {
+      message.classList.remove("hidden")
+    } else {
+      message.classList.add("hidden")
+    }
+  })
+}
+// Cargar mensajes al iniciar
+;(async () => {
+  const storedMessages = localStorage.getItem("chatMessages")
+  let messages = []
+  if (storedMessages) {
+    try {
+      messages = JSON.parse(storedMessages)
+    } catch (error) {
+      console.error("Error parsing stored messages:", error)
+      localStorage.removeItem("chatMessages") // Limpiar si hay error
+    }
+  }
+
+  // Invertir el orden de los mensajes para mostrar los más recientes primero
+  messages.reverse()
+
+  // Limpiar el contenedor de mensajes antes de agregar los mensajes cargados
+  msgsEl.innerHTML = ""
+
+  // Variables para evitar duplicados visuales
+  // let prevMsg = { source: null, payload: null, timestamp: null };
+
+  messages.forEach((m) => {
+    // Evitar duplicados visuales estrictos (podría ser necesario ajustar esta lógica)
+    // if (m.source !== prevMsg.source || m.payload !== prevMsg.payload || m.timestamp !== prevMsg.timestamp) {
+    let displayPayload = m.payload
+    if (m.content_type && m.content_type.startsWith("audio/")) {
+      displayPayload = m.filename || "Mensaje de voz"
+    } else if (m.content_type && m.content_type.startsWith("image/")) {
+      displayPayload = m.filename || "Imagen"
+    }
+
+    addBubble({
+      payload: displayPayload,
+      source: m.source,
+      time: new Date(m.timestamp ? m.timestamp * 1000 : Date.now()).toLocaleTimeString().slice(0, 5),
+      metrics: m.rssi !== undefined || m.snr !== undefined ? { rssi: m.rssi, snr: m.snr } : {},
+      content_type: m.content_type || "text/plain",
+      data_b64: m.data_b64,
+    })
+    // prevMsg = { source: m.source, payload: displayPayload, timestamp: m.timestamp }; // Actualizar prevMsg
+
+    if (m.source && m.source !== "sent" && m.source !== "?") {
+      updateNodeStatus(m.source, {
+        rssi: m.rssi,
+        snr: m.snr,
+        lastSeen: m.timestamp ? m.timestamp * 1000 : Date.now(),
+        status: "online",
+        source: m.source,
+        isBridge: m.is_bridge === true,
+      })
+    }
+    // }
+  })
+})()
+
+// Iniciar conexión WebSocket
+connectWebSocket()
